@@ -74,6 +74,7 @@ func NewNodeFencingController(client kubernetes.Interface) *Controller {
 func (c *Controller) Run(ctx <-chan struct{}) {
 	glog.Infof("pod controller starting")
 	go c.podController.Run(ctx)
+	glog.Infof("Waiting for informer initial sync")
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
 		return c.podController.HasSynced(), nil
 	})
