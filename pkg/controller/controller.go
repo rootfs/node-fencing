@@ -2,6 +2,7 @@ package controller
 
 import (
 	"os"
+	"sync"
 	"time"
 
 	"github.com/golang/glog"
@@ -9,22 +10,24 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 type Controller struct {
 	client         kubernetes.Interface
-	volumeMap      map[string][]string
+	nodePVMap      map[string][]*v1.PersistentVolume
+	nodePVLock     *sync.Mutex
 	nodeController cache.Controller
 	podController  cache.Controller
 }
 
 func NewNodeFencingController(client kubernetes.Interface) *Controller {
-	volMap := make(map[string][]string)
 	c := &Controller{
-		client:    client,
-		volumeMap: volMap,
+		client:     client,
+		nodePVMap:  make(map[string][]*v1.PersistentVolume),
+		nodePVLock: &sync.Mutex{},
 	}
 
 	nodeListWatcher := cache.NewListWatchFromClient(
@@ -95,7 +98,7 @@ func (c *Controller) onNodeAdd(obj interface{}) {
 func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 	oldNode := oldObj.(*v1.Node)
 	newNode := newObj.(*v1.Node)
-	glog.Infof("update node: %s/%s", oldNode.Name, newNode.Name)
+	glog.V(4).Infof("update node: %s/%s", oldNode.Name, newNode.Name)
 }
 
 func (c *Controller) onNodeDelete(obj interface{}) {
@@ -105,16 +108,68 @@ func (c *Controller) onNodeDelete(obj interface{}) {
 
 func (c *Controller) onPodAdd(obj interface{}) {
 	pod := obj.(*v1.Pod)
-	glog.Infof("add Pod: %s/%s", pod.Namespace, pod.Name)
+	glog.Infof("add pod: %s", pod.Name)
+	c.updateNodePV(pod, true)
 }
 
 func (c *Controller) onPodUpdate(oldObj, newObj interface{}) {
 	oldPod := oldObj.(*v1.Pod)
 	newPod := newObj.(*v1.Pod)
 	glog.Infof("update pod: %s/%s", oldPod.Name, newPod.Name)
+	c.updateNodePV(newPod, true)
 }
 
 func (c *Controller) onPodDelete(obj interface{}) {
-	node := obj.(*v1.Pod)
-	glog.Infof("delete pod: %s", node.Name)
+	pod := obj.(*v1.Pod)
+	glog.Infof("delete pod: %s", pod.Name)
+	c.updateNodePV(pod, false)
+}
+
+func (c *Controller) updateNodePV(pod *v1.Pod, toAdd bool) {
+	node := pod.Spec.NodeName
+	if len(node) == 0 {
+		return
+	}
+	podPrinted := false
+	for _, vol := range pod.Spec.Volumes {
+		if vol.VolumeSource.PersistentVolumeClaim != nil {
+			if !podPrinted {
+				glog.Infof("Pod: %s/%s", pod.Namespace, pod.Name)
+				glog.Infof("\tnode: %s", node)
+				podPrinted = true
+			}
+			pvcName := vol.VolumeSource.PersistentVolumeClaim.ClaimName
+			glog.Infof("\tpvc: %v", pvcName)
+			pvc, err := c.client.CoreV1().PersistentVolumeClaims(pod.Namespace).Get(pvcName, metav1.GetOptions{})
+			if err == nil {
+				pvName := pvc.Spec.VolumeName
+				if len(pvName) != 0 {
+					glog.Infof("\tpv: %v", pvName)
+					pv, err := c.client.CoreV1().PersistentVolumes().Get(pvName, metav1.GetOptions{})
+					if err == nil {
+						c.updateNodePVMap(node, pv, toAdd)
+					}
+				}
+			}
+		}
+	}
+}
+
+func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd bool) {
+	c.nodePVLock.Lock()
+	defer c.nodePVLock.Unlock()
+	for i, p := range c.nodePVMap[node] {
+		if p != nil && pv != nil && p.Name == pv.Name {
+			if toAdd {
+				// already in the map, not to add
+				return
+			}
+			c.nodePVMap[node][i] = c.nodePVMap[node][len(c.nodePVMap[node])-1]
+			c.nodePVMap[node] = c.nodePVMap[node][:len(c.nodePVMap[node])-1]
+			glog.Infof("node %s pv map: %v", node, c.nodePVMap[node])
+			return
+		}
+	}
+	c.nodePVMap[node] = append(c.nodePVMap[node], pv)
+	glog.Infof("node %s pv map: %v", node, c.nodePVMap[node])
 }
