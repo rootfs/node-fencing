@@ -1,0 +1,16 @@
+package: github.com/rootfs/node-fencing
+import:
+- package: github.com/golang/glog
+- package: k8s.io/apimachinery
+  version: 728b986edb9bd4bb8a022a8cc13573a97ecc2239
+- package: k8s.io/client-go
+  version: 42a124578af9e61f5c6902fa7b6b2cb6538f17d2
+- package: k8s.io/api
+  version: e24ed681f56165befbea50a24f7e9f1c079ac366
+- package: k8s.io/kubernetes
+  version: df7f4b3526a580ef122aaeef61ab52842a60a88b
+- package: github.com/dgrijalva/jwt-go
+- package: github.com/spf13/cobra
+  version: f62e98d28ab7ad31d707ba837a966378465c7b57
+- package: github.com/spf13/pflag
+  version: 5ccb023bc27df288a957c5e994cd44fd19619465
