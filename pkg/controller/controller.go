@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+
+	"github.com/rootfs/node-fencing/pkg/fencing"
+
 	"k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -98,7 +101,7 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 func (c *Controller) onNodeAdd(obj interface{}) {
 	node := obj.(*v1.Node)
 	nodeName := node.Name
-	glog.Infof("add node: %s", nodeName)
+	glog.V(4).Infof("add node: %s", nodeName)
 	status := node.Status
 	conditions := status.Conditions
 
@@ -109,11 +112,11 @@ func (c *Controller) onNodeAdd(obj interface{}) {
 				glog.Warningf("PVs on node %s:", nodeName)
 				for _, pv := range c.nodePVMap[nodeName] {
 					glog.Warningf("\t%v:", pv.Name)
+					c.nodeFencing(node, pv)
 				}
 			}
 		}
 	}
-
 }
 
 func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
@@ -141,6 +144,7 @@ func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 					glog.Warningf("PVs on node %s:", nodeName)
 					for _, pv := range c.nodePVMap[nodeName] {
 						glog.Warningf("\t%v:", pv.Name)
+						c.nodeFencing(newNode, pv)
 					}
 				}
 			}
@@ -221,4 +225,9 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 	}
 	c.nodePVMap[node] = append(c.nodePVMap[node], pv)
 	glog.V(6).Infof("node %s pv map: %v", node, c.nodePVMap[node])
+}
+
+//FIXME use node name, externalID, and IP
+func (c *Controller) nodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
+	fencing.Fencing(node, pv)
 }
