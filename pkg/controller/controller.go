@@ -72,33 +72,80 @@ func NewNodeFencingController(client kubernetes.Interface) *Controller {
 }
 
 func (c *Controller) Run(ctx <-chan struct{}) {
-	glog.Infof("node controller starting")
-	go c.nodeController.Run(ctx)
 	glog.Infof("pod controller starting")
 	go c.podController.Run(ctx)
+	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
+		return c.podController.HasSynced(), nil
+	})
+	if !c.podController.HasSynced() {
+		glog.Errorf("pod informer controller initial sync timeout")
+		os.Exit(1)
+	}
+
+	glog.Infof("node controller starting")
+	go c.nodeController.Run(ctx)
 	glog.Infof("Waiting for informer initial sync")
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
-		return c.nodeController.HasSynced() && c.podController.HasSynced(), nil
+		return c.nodeController.HasSynced(), nil
 	})
 	if !c.nodeController.HasSynced() {
 		glog.Errorf("node informer controller initial sync timeout")
-		os.Exit(1)
-	}
-	if !c.podController.HasSynced() {
-		glog.Errorf("pod informer controller initial sync timeout")
 		os.Exit(1)
 	}
 }
 
 func (c *Controller) onNodeAdd(obj interface{}) {
 	node := obj.(*v1.Node)
-	glog.Infof("add node: %s", node.Name)
+	nodeName := node.Name
+	glog.Infof("add node: %s", nodeName)
+	status := node.Status
+	conditions := status.Conditions
+
+	for _, condition := range conditions {
+		if v1.NodeReady == condition.Type && v1.ConditionUnknown == condition.Status {
+			glog.Warningf("node %s Ready status is unknown", nodeName)
+			if len(c.nodePVMap[nodeName]) > 0 {
+				glog.Warningf("PVs on node %s:", nodeName)
+				for _, pv := range c.nodePVMap[nodeName] {
+					glog.Warningf("\t%v:", pv.Name)
+				}
+			}
+		}
+	}
+
 }
 
 func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 	oldNode := oldObj.(*v1.Node)
 	newNode := newObj.(*v1.Node)
+	nodeName := oldNode.Name
 	glog.V(4).Infof("update node: %s/%s", oldNode.Name, newNode.Name)
+	newStatus := newNode.Status
+	newConditions := newStatus.Conditions
+	oldStatus := oldNode.Status
+	oldConditions := oldStatus.Conditions
+
+	for _, newCondition := range newConditions {
+		found := false
+		for _, oldCondition := range oldConditions {
+			if newCondition.LastTransitionTime == oldCondition.LastTransitionTime {
+				found = true
+				break
+			}
+		}
+		if !found {
+			if v1.NodeReady == newCondition.Type && v1.ConditionUnknown == newCondition.Status {
+				glog.Warningf("node %s Ready status is unknown", nodeName)
+				if len(c.nodePVMap[nodeName]) > 0 {
+					glog.Warningf("PVs on node %s:", nodeName)
+					for _, pv := range c.nodePVMap[nodeName] {
+						glog.Warningf("\t%v:", pv.Name)
+					}
+				}
+			}
+		}
+	}
+
 }
 
 func (c *Controller) onNodeDelete(obj interface{}) {
@@ -108,20 +155,21 @@ func (c *Controller) onNodeDelete(obj interface{}) {
 
 func (c *Controller) onPodAdd(obj interface{}) {
 	pod := obj.(*v1.Pod)
-	glog.Infof("add pod: %s", pod.Name)
+	glog.V(4).Infof("add pod: %s", pod.Name)
 	c.updateNodePV(pod, true)
 }
 
 func (c *Controller) onPodUpdate(oldObj, newObj interface{}) {
 	oldPod := oldObj.(*v1.Pod)
 	newPod := newObj.(*v1.Pod)
-	glog.Infof("update pod: %s/%s", oldPod.Name, newPod.Name)
+	glog.V(4).Infof("update pod: %s/%s", oldPod.Name, newPod.Name)
+	//FIXME: should evaluate PV status between old and new pod before update node pv map
 	c.updateNodePV(newPod, true)
 }
 
 func (c *Controller) onPodDelete(obj interface{}) {
 	pod := obj.(*v1.Pod)
-	glog.Infof("delete pod: %s", pod.Name)
+	glog.V(4).Infof("delete pod: %s", pod.Name)
 	c.updateNodePV(pod, false)
 }
 
@@ -134,17 +182,17 @@ func (c *Controller) updateNodePV(pod *v1.Pod, toAdd bool) {
 	for _, vol := range pod.Spec.Volumes {
 		if vol.VolumeSource.PersistentVolumeClaim != nil {
 			if !podPrinted {
-				glog.Infof("Pod: %s/%s", pod.Namespace, pod.Name)
-				glog.Infof("\tnode: %s", node)
+				glog.V(4).Infof("Pod: %s/%s", pod.Namespace, pod.Name)
+				glog.V(4).Infof("\tnode: %s", node)
 				podPrinted = true
 			}
 			pvcName := vol.VolumeSource.PersistentVolumeClaim.ClaimName
-			glog.Infof("\tpvc: %v", pvcName)
+			glog.V(4).Infof("\tpvc: %v", pvcName)
 			pvc, err := c.client.CoreV1().PersistentVolumeClaims(pod.Namespace).Get(pvcName, metav1.GetOptions{})
 			if err == nil {
 				pvName := pvc.Spec.VolumeName
 				if len(pvName) != 0 {
-					glog.Infof("\tpv: %v", pvName)
+					glog.V(4).Infof("\tpv: %v", pvName)
 					pv, err := c.client.CoreV1().PersistentVolumes().Get(pvName, metav1.GetOptions{})
 					if err == nil {
 						c.updateNodePVMap(node, pv, toAdd)
@@ -166,10 +214,10 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 			}
 			c.nodePVMap[node][i] = c.nodePVMap[node][len(c.nodePVMap[node])-1]
 			c.nodePVMap[node] = c.nodePVMap[node][:len(c.nodePVMap[node])-1]
-			glog.Infof("node %s pv map: %v", node, c.nodePVMap[node])
+			glog.V(6).Infof("node %s pv map: %v", node, c.nodePVMap[node])
 			return
 		}
 	}
 	c.nodePVMap[node] = append(c.nodePVMap[node], pv)
-	glog.Infof("node %s pv map: %v", node, c.nodePVMap[node])
+	glog.V(6).Infof("node %s pv map: %v", node, c.nodePVMap[node])
 }
