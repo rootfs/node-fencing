@@ -161,7 +161,9 @@ func (c *Controller) onNodeDelete(obj interface{}) {
 func (c *Controller) onPodAdd(obj interface{}) {
 	pod := obj.(*v1.Pod)
 	glog.V(4).Infof("add pod: %s", pod.Name)
-	c.updateNodePV(pod, true)
+	if c.podHasOwner(pod) {
+		c.updateNodePV(pod, true)
+	}
 }
 
 func (c *Controller) onPodUpdate(oldObj, newObj interface{}) {
@@ -169,13 +171,17 @@ func (c *Controller) onPodUpdate(oldObj, newObj interface{}) {
 	newPod := newObj.(*v1.Pod)
 	glog.V(4).Infof("update pod: %s/%s", oldPod.Name, newPod.Name)
 	//FIXME: should evaluate PV status between old and new pod before update node pv map
-	c.updateNodePV(newPod, true)
+	if c.podHasOwner(newPod) {
+		c.updateNodePV(newPod, true)
+	}
 }
 
 func (c *Controller) onPodDelete(obj interface{}) {
 	pod := obj.(*v1.Pod)
 	glog.V(4).Infof("delete pod: %s", pod.Name)
-	c.updateNodePV(pod, false)
+	if c.podHasOwner(pod) {
+		c.updateNodePV(pod, false)
+	}
 }
 
 func (c *Controller) updateNodePV(pod *v1.Pod, toAdd bool) {
@@ -208,6 +214,18 @@ func (c *Controller) updateNodePV(pod *v1.Pod, toAdd bool) {
 	}
 }
 
+func (c *Controller) podHasOwner(pod *v1.Pod) bool {
+	if len(pod.OwnerReferences) != 0 {
+		for _, owner := range pod.OwnerReferences {
+			if owner.BlockOwnerDeletion != nil {
+				glog.V(4).Infof("pod %s has owner %s %s", pod.Name, owner.Kind, owner.Name)
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd bool) {
 	c.nodePVLock.Lock()
 	defer c.nodePVLock.Unlock()
@@ -227,7 +245,6 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 	glog.V(6).Infof("node %s pv map: %v", node, c.nodePVMap[node])
 }
 
-//FIXME use node name, externalID, and IP
 func (c *Controller) nodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
 	fencing.Fencing(node, pv)
 }
