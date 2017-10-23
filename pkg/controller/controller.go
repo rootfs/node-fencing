@@ -11,14 +11,18 @@ import (
 
 	"k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 type Controller struct {
+	crdClient      *rest.RESTClient
+	crdScheme      *runtime.Scheme
 	client         kubernetes.Interface
 	nodePVMap      map[string][]*v1.PersistentVolume
 	nodePVLock     *sync.Mutex
@@ -26,11 +30,13 @@ type Controller struct {
 	podController  cache.Controller
 }
 
-func NewNodeFencingController(client kubernetes.Interface) *Controller {
+func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTClient, crdScheme *runtime.Scheme) *Controller {
 	c := &Controller{
 		client:     client,
 		nodePVMap:  make(map[string][]*v1.PersistentVolume),
 		nodePVLock: &sync.Mutex{},
+		crdClient:  crdClient,
+		crdScheme:  crdScheme,
 	}
 
 	nodeListWatcher := cache.NewListWatchFromClient(

@@ -9,6 +9,8 @@ import:
   version: e24ed681f56165befbea50a24f7e9f1c079ac366
 - package: k8s.io/kubernetes
   version: df7f4b3526a580ef122aaeef61ab52842a60a88b
+- package: k8s.io/apiextensions-apiserver
+  version: be41f5093e2b05c7a0befe35b04b715eb325ab43
 - package: github.com/dgrijalva/jwt-go
 - package: github.com/spf13/cobra
   version: f62e98d28ab7ad31d707ba837a966378465c7b57
