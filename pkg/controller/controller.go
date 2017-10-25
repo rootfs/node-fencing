@@ -24,8 +24,8 @@ import (
 
 const (
 	crdPostInitialDelay = 2 * time.Second
-	crdPostFactor       = 1.5
-	crdPostSteps        = 20
+	crdPostFactor       = 1.2
+	crdPostSteps        = 5
 )
 
 type Controller struct {
