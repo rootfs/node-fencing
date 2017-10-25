@@ -23,7 +23,7 @@ import (
 )
 
 // GroupName is the group name use in this package.
-const GroupName = "nodefencing.k8s.io"
+const GroupName = "ha.k8s.io"
 
 var (
 	// SchemeBuilder is the new scheme builder

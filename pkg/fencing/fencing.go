@@ -19,7 +19,7 @@ func sshFencing(node *v1.Node) {
 			output, err := cmd.CombinedOutput()
 			glog.Infof("fencing output: %s", string(output))
 			if err == nil {
-				glog.Infof("fencing succeeded")
+				glog.Infof("fencing node %s succeeded", node.Name)
 				return
 			}
 			glog.Infof("fencing to %s failed:%v", addr.Address, err)
