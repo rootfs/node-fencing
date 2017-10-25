@@ -1,13 +1,14 @@
 package controller
 
 import (
+	"fmt"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/golang/glog"
 
-	"github.com/rootfs/node-fencing/pkg/fencing"
+	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -17,7 +18,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
+)
+
+const (
+	crdPostInitialDelay = 2 * time.Second
+	crdPostFactor       = 1.5
+	crdPostSteps        = 20
 )
 
 type Controller struct {
@@ -118,7 +126,7 @@ func (c *Controller) onNodeAdd(obj interface{}) {
 				glog.Warningf("PVs on node %s:", nodeName)
 				for _, pv := range c.nodePVMap[nodeName] {
 					glog.Warningf("\t%v:", pv.Name)
-					c.nodeFencing(node, pv)
+					c.postNodeFencing(node, pv)
 				}
 			}
 		}
@@ -150,7 +158,7 @@ func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 					glog.Warningf("PVs on node %s:", nodeName)
 					for _, pv := range c.nodePVMap[nodeName] {
 						glog.Warningf("\t%v:", pv.Name)
-						c.nodeFencing(newNode, pv)
+						c.postNodeFencing(newNode, pv)
 					}
 				}
 			}
@@ -251,6 +259,38 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 	glog.V(6).Infof("node %s pv map: %v", node, c.nodePVMap[node])
 }
 
-func (c *Controller) nodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
-	fencing.Fencing(node, pv)
+func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
+	//fencing.Fencing(node, pv)
+	nfName := fmt.Sprintf("node-fencing-%s-%s-%s", node.Name, pv.Name, uuid.NewUUID())
+
+	nodeFencing := &crdv1.NodeFencing{
+		Metadata: metav1.ObjectMeta{
+			Name: nfName,
+		},
+		Node: *node,
+		PV:   *pv,
+	}
+
+	backoff := wait.Backoff{
+		Duration: crdPostInitialDelay,
+		Factor:   crdPostFactor,
+		Steps:    crdPostSteps,
+	}
+	var result crdv1.NodeFencing
+	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+		err := c.crdClient.Post().
+			Resource(crdv1.NodeFencingResourcePlural).
+			Body(nodeFencing).
+			Do().Into(&result)
+		if err != nil {
+			// Re-Try it as errors writing to the API server are common
+			return false, err
+		}
+		return true, nil
+	})
+	if err != nil {
+		glog.Warningf("failed to post NodeFencing CRD object: %v", err)
+	} else {
+		glog.Infof("posted NodeFencing CRD object for node %s", node.Name)
+	}
 }

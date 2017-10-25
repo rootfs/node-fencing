@@ -7,6 +7,7 @@ import (
 	"github.com/golang/glog"
 
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
+	"github.com/rootfs/node-fencing/pkg/fencing"
 
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -66,9 +67,15 @@ func (c *Executor) Run(ctx <-chan struct{}) {
 		glog.Errorf("node fencing informer controller initial sync timeout")
 		os.Exit(1)
 	}
+	glog.Infof("Watching node fencing object")
 }
 
-func (c *Executor) onNodeFencingAdd(_ interface{}) {
+func (c *Executor) onNodeFencingAdd(obj interface{}) {
+	nodeFencing := obj.(*crdv1.NodeFencing)
+	node := nodeFencing.Node
+	pv := nodeFencing.PV
+	glog.V(3).Infof("fence node: %s", node.Name)
+	fencing.Fencing(&node, &pv)
 }
 
 func (c *Executor) onNodeFencingUpdate(_, _ interface{}) {
