@@ -12,6 +12,8 @@ If nodes that have PVs on them become offline, the fencing controller tries to f
 ```console
 # make
 go build -o _output/bin/node-fencing-controller cmd/node-fencing-controller.go
+go build -o _output/bin/node-fencing-controller cmd/node-fencing-executor.go
+
 # _output/bin/node-fencing-controller -kubeconfig=/root/.kube/config 
 I1019 15:56:22.153571   22733 controller.go:78] pod controller starting
 I1019 15:56:22.153713   22733 controller.go:80] Waiting for informer initial sync

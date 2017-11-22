@@ -3,8 +3,11 @@ package fencing
 import (
 	"os/exec"
 
+	//"fence-executor/providers"
 	"github.com/golang/glog"
+	//"github.com/rootfs/node-fencing/pkg/fencing/providers"
 	"k8s.io/api/core/v1"
+	//"time"
 )
 
 const (
@@ -36,4 +39,34 @@ func Fencing(node *v1.Node, pv *v1.PersistentVolume) {
 		pv.Spec.CephFS != nil {
 		sshFencing(node)
 	}
+}
+
+func FenceNode(node *v1.Node, pv *v1.PersistentVolume) error {
+	// search for node fence configmap related to node.Name
+
+	// Create fence providers and agents to execute the fence
+	//f := fencing.CreateNewFence()
+	//provider := providers.CreateRHProvider(nil)
+	//f.RegisterProvider("redhat", provider)
+	//err := f.LoadAgents(10 * time.Second)
+	//if err != nil {
+	//	glog.Infof("error loading agents:", err)
+	//	return err
+	//}
+
+	// Config agent with parameters related to node
+
+	//ac := fencing.NewAgentConfig(parameters["provider"], parameters["agent"])
+	//ac.SetParameter("address", parameters["address"])
+	////ac.SetParameter("username", parameters["username"])
+	//ac.SetParameter("password", parameters["password"])
+	//ac.SetParameter("plug", parameters["port"])
+
+	//err = f.Run(ac, fencing.Status, 10*time.Second)
+	//if err != nil {
+	//	glog.Infof("error: ", err)
+	//	return err
+	//}
+	glog.Infof("Fenced was executed!")
+	return nil
 }
