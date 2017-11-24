@@ -9,6 +9,8 @@ import (
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
 
 	apiv1 "k8s.io/api/core/v1"
+
+	"github.com/rootfs/node-fencing/pkg/fencing"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -68,11 +70,15 @@ func (c *Executor) Run(ctx <-chan struct{}) {
 	}
 }
 
-func (c *Executor) onNodeFencingAdd(_ interface{}) {
+func (c *Executor) onNodeFencingAdd(obj interface{}) {
+	// TODO: fix current node fencing to align with design proposal
+	fence := obj.(*crdv1.NodeFencing)
+	fencing.ExecuteFenceAgents(fencing.GetNodeFenceConfig(&fence.Node, c.client), "step", c.client)
+
 }
 
 func (c *Executor) onNodeFencingUpdate(_, _ interface{}) {
 }
 
-func (c *Executor) onNodeFencingDelete(_ interface{}) {
+func (c *Executor) onNodeFencingDelete(obj interface{}) {
 }

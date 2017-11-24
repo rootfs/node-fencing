@@ -252,5 +252,6 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 }
 
 func (c *Controller) nodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
+	// TODO: remove this call, and create fencing obj here. executor will call fence
 	fencing.Fencing(node, pv)
 }
