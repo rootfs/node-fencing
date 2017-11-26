@@ -11,7 +11,6 @@ If nodes that have PVs on them become offline, the fencing controller tries to f
 
 ```console
 # make
-
 # _output/bin/node-fencing-controller -kubeconfig=/root/.kube/config 
 
 I1025 14:20:21.175263   23532 controller.go:92] pod controller starting
