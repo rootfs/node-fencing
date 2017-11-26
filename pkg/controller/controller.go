@@ -259,6 +259,10 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 	glog.V(6).Infof("node %s pv map: %v", node, c.nodePVMap[node])
 }
 
+func (c *Controller) nodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
+	// TODO: remove this call, and create fencing obj here. executor will call fence
+	fencing.Fencing(node, pv)
+
 func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
 	//fencing.Fencing(node, pv)
 	nfName := fmt.Sprintf("node-fencing-%s-%s-%s", node.Name, pv.Name, uuid.NewUUID())

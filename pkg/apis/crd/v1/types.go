@@ -96,6 +96,14 @@ type NodeFencingList struct {
 	Items           []NodeFencing   `json:"items"`
 }
 
+// NodeFenceConfig holds configmap values
+type NodeFenceConfig struct {
+	NodeName        string   `json:"name" protobuf:"bytes,5,opt,name=node_name"`
+	PowerManagement []string `json:"items"`
+	Isolation       []string `json:"items"`
+	Recovery        []string `json:"items"`
+}
+
 // GetObjectKind is required to satisfy Object interface
 func (n *NodeFencing) GetObjectKind() schema.ObjectKind {
 	return &n.TypeMeta

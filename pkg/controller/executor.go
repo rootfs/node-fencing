@@ -10,6 +10,8 @@ import (
 	"github.com/rootfs/node-fencing/pkg/fencing"
 
 	apiv1 "k8s.io/api/core/v1"
+
+	"github.com/rootfs/node-fencing/pkg/fencing"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -71,15 +73,13 @@ func (c *Executor) Run(ctx <-chan struct{}) {
 }
 
 func (c *Executor) onNodeFencingAdd(obj interface{}) {
-	nodeFencing := obj.(*crdv1.NodeFencing)
-	node := nodeFencing.Node
-	pv := nodeFencing.PV
-	glog.V(3).Infof("fence node: %s", node.Name)
-	fencing.Fencing(&node, &pv)
+	// TODO: fix current node fencing to align with design proposal
+	fence := obj.(*crdv1.NodeFencing)
+	fencing.ExecuteFenceAgents(fencing.GetNodeFenceConfig(&fence.Node, c.client), "step", c.client)
 }
 
 func (c *Executor) onNodeFencingUpdate(_, _ interface{}) {
 }
 
-func (c *Executor) onNodeFencingDelete(_ interface{}) {
+func (c *Executor) onNodeFencingDelete(obj interface{}) {
 }
