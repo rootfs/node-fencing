@@ -3,15 +3,10 @@ package controller
 import (
 	"os"
 	"time"
-
 	"github.com/golang/glog"
-
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
 	"github.com/rootfs/node-fencing/pkg/fencing"
-
 	apiv1 "k8s.io/api/core/v1"
-
-	"github.com/rootfs/node-fencing/pkg/fencing"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -35,7 +30,7 @@ func NewNodeFencingExecutorController(client kubernetes.Interface, crdClient *re
 		crdScheme: crdScheme,
 	}
 
-	// Watch NodeFencing objects
+	// Watch NodeFence objects
 	source := cache.NewListWatchFromClient(
 		c.crdClient,
 		crdv1.NodeFencingResourcePlural,
@@ -44,7 +39,7 @@ func NewNodeFencingExecutorController(client kubernetes.Interface, crdClient *re
 
 	_, nodeFencingController := cache.NewInformer(
 		source,
-		&crdv1.NodeFencing{},
+		&crdv1.NodeFence{},
 		time.Minute*60,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    c.onNodeFencingAdd,
@@ -74,7 +69,7 @@ func (c *Executor) Run(ctx <-chan struct{}) {
 
 func (c *Executor) onNodeFencingAdd(obj interface{}) {
 	// TODO: fix current node fencing to align with design proposal
-	fence := obj.(*crdv1.NodeFencing)
+	fence := obj.(*crdv1.NodeFence)
 	fencing.ExecuteFenceAgents(fencing.GetNodeFenceConfig(&fence.Node, c.client), "step", c.client)
 }
 

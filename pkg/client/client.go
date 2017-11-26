@@ -67,7 +67,7 @@ func CreateCRD(clientset apiextensionsclient.Interface) error {
 			Scope:   apiextensionsv1beta1.ClusterScoped,
 			Names: apiextensionsv1beta1.CustomResourceDefinitionNames{
 				Plural: crdv1.NodeFencingResourcePlural,
-				Kind:   reflect.TypeOf(crdv1.NodeFencing{}).Name(),
+				Kind:   reflect.TypeOf(crdv1.NodeFence{}).Name(),
 			},
 		},
 	}

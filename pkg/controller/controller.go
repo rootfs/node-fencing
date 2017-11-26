@@ -261,13 +261,14 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 
 
 func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
-	//fencing.Fencing(node, pv)
 	nfName := fmt.Sprintf("node-fencing-%s-%s-%s", node.Name, pv.Name, uuid.NewUUID())
 
-	nodeFencing := &crdv1.NodeFencing{
+	nodeFence := &crdv1.NodeFence{
 		Metadata: metav1.ObjectMeta{
 			Name: nfName,
 		},
+		CleanResources: true,
+		Step: crdv1.NodeFenceStepIsolation,
 		Node: *node,
 		PV:   *pv,
 	}
@@ -277,11 +278,11 @@ func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
 		Factor:   crdPostFactor,
 		Steps:    crdPostSteps,
 	}
-	var result crdv1.NodeFencing
+	var result crdv1.NodeFence
 	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
 		err := c.crdClient.Post().
 			Resource(crdv1.NodeFencingResourcePlural).
-			Body(nodeFencing).
+			Body(nodeFence).
 			Do().Into(&result)
 		if err != nil {
 			// Re-Try it as errors writing to the API server are common
@@ -290,8 +291,8 @@ func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
 		return true, nil
 	})
 	if err != nil {
-		glog.Warningf("failed to post NodeFencing CRD object: %v", err)
+		glog.Warningf("failed to post NodeFence CRD object: %v", err)
 	} else {
-		glog.Infof("posted NodeFencing CRD object for node %s", node.Name)
+		glog.Infof("posted NodeFence CRD object for node %s", node.Name)
 	}
 }

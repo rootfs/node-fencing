@@ -25,11 +25,10 @@ import (
 )
 
 const (
-	// NodeFencingResourcePlural is "nodefencings"
 	NodeFencingResourcePlural = "nodefencings"
 )
 
-// NodeFencingStatus is the status of the NodeFencing
+// NodeFencingStatus is the status of the NodeFence
 type NodeFencingStatus struct {
 	// The time the fencing was successfully created
 	// +optional
@@ -39,15 +38,15 @@ type NodeFencingStatus struct {
 	Conditions []NodeFencingCondition `json:"conditions" protobuf:"bytes,2,rep,name=conditions"`
 }
 
-// NodeFencingConditionType is the type of NodeFencing conditions
+// NodeFencingConditionType is the type of NodeFence conditions
 type NodeFencingConditionType string
 
 // These are valid conditions of node fencing
 const (
-	// NodeFencingConditionPending means the node fencing is being executed
-	NodeFencingConditionPending NodeFencingConditionType = "Pending"
-	// NodeFencingConditionReady is added when the node is successfully executed
-	NodeFencingConditionReady NodeFencingConditionType = "Ready"
+	// NodeFencingConditionRunning means the node fencing is being executed
+	NodeFencingConditionRunning NodeFencingConditionType = "Running"
+	// NodeFencingConditionDone is added when the node is successfully executed
+	NodeFencingConditionDone NodeFencingConditionType = "Done"
 	// NodeFencingConditionError means an error occurred during node fencing.
 	NodeFencingConditionError NodeFencingConditionType = "Error"
 )
@@ -69,31 +68,46 @@ type NodeFencingCondition struct {
 	Message string `json:"message" protobuf:"bytes,5,opt,name=message"`
 }
 
+type NodeFenceStepType string
+
+const (
+	// NodeFenceStepIsolation means the fence process in isolation phase
+	NodeFenceStepIsolation NodeFenceStepType = "isolation"
+	// NodeFenceStepPowerManagement means the fence process in pm phase
+	NodeFenceStepPowerManagement NodeFenceStepType = "power-management"
+	// NodeFenceStepPowerRecovery means the fence process in recovery phase
+	NodeFenceStepPowerRecovery NodeFenceStepType = "recovery"
+)
+
 // +genclient=true
 
-// NodeFencing is the node fencing object accessible to the fencing controller and executor
-type NodeFencing struct {
+// NodeFence is the node fencing object accessible to the fencing controller and executor
+type NodeFence struct {
 	metav1.TypeMeta `json:",inline"`
 	Metadata        metav1.ObjectMeta `json:"metadata"`
 
 	// Node represents the node to be fenced.
-	// +optional
 	Node core_v1.Node `json:"node" protobuf:"bytes,2,opt,name=node"`
+
+	// Step represent the current step in the fence operation
+	Step NodeFenceStepType `json:"step" protobuf:"bytes,5,opt,name=step"`
+
+	// boolean represent if controller manage node's resource during fence
+	CleanResources bool `json:"clean_resources" protobuf:"bytes,5,opt,name=clean_resources"`
 
 	// PV presents the persistent volume attached/mounted on the node
 	// +optional
 	PV core_v1.PersistentVolume `json:"pv" protobuf:"bytes,3,opt,name=pv"`
 
 	// Status represents the latest observer state of the node fencing
-	// +optional
 	Status NodeFencingStatus `json:"status" protobuf:"bytes,4,opt,name=status"`
 }
 
-// NodeFencingList is a list of NodeFencing objects
+// NodeFencingList is a list of NodeFence objects
 type NodeFencingList struct {
-	metav1.TypeMeta `json:",inline"`
+	metav1.TypeMeta                 `json:",inline"`
 	Metadata        metav1.ListMeta `json:"metadata"`
-	Items           []NodeFencing   `json:"items"`
+	Items           []NodeFence     `json:"items"`
 }
 
 // NodeFenceConfig holds configmap values
@@ -105,12 +119,12 @@ type NodeFenceConfig struct {
 }
 
 // GetObjectKind is required to satisfy Object interface
-func (n *NodeFencing) GetObjectKind() schema.ObjectKind {
+func (n *NodeFence) GetObjectKind() schema.ObjectKind {
 	return &n.TypeMeta
 }
 
 // GetObjectMeta is required to satisfy ObjectMetaAccessor interface
-func (n *NodeFencing) GetObjectMeta() metav1.Object {
+func (n *NodeFence) GetObjectMeta() metav1.Object {
 	return &n.Metadata
 }
 
@@ -127,17 +141,17 @@ func (nd *NodeFencingList) GetListMeta() metav1.List {
 // NodeFencingListCopy is a NodeFencingList type
 type NodeFencingListCopy NodeFencingList
 
-// NodeFencingCopy is a NodeFencing type
-type NodeFencingCopy NodeFencing
+// NodeFencingCopy is a NodeFence type
+type NodeFencingCopy NodeFence
 
 // UnmarshalJSON unmarshalls json data
-func (v *NodeFencing) UnmarshalJSON(data []byte) error {
+func (v *NodeFence) UnmarshalJSON(data []byte) error {
 	tmp := NodeFencingCopy{}
 	err := json.Unmarshal(data, &tmp)
 	if err != nil {
 		return err
 	}
-	tmp2 := NodeFencing(tmp)
+	tmp2 := NodeFence(tmp)
 	*v = tmp2
 	return nil
 }
