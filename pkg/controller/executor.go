@@ -68,13 +68,12 @@ func (c *Executor) Run(ctx <-chan struct{}) {
 }
 
 func (c *Executor) onNodeFencingAdd(obj interface{}) {
-	// TODO: fix current node fencing to align with design proposal
 	fence := obj.(*crdv1.NodeFence)
-	fencing.ExecuteFenceAgents(fencing.GetNodeFenceConfig(&fence.Node, c.client), "step", c.client)
+	fencing.ExecuteFenceAgents(fencing.GetNodeFenceConfig(&fence.Node, c.client), fence.Step, c.client)
 }
 
 func (c *Executor) onNodeFencingUpdate(_, _ interface{}) {
 }
 
-func (c *Executor) onNodeFencingDelete(obj interface{}) {
+func (c *Executor) onNodeFencingDelete(_ interface{}) {
 }

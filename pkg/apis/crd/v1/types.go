@@ -76,7 +76,7 @@ const (
 	// NodeFenceStepPowerManagement means the fence process in pm phase
 	NodeFenceStepPowerManagement NodeFenceStepType = "power-management"
 	// NodeFenceStepPowerRecovery means the fence process in recovery phase
-	NodeFenceStepPowerRecovery NodeFenceStepType = "recovery"
+	NodeFenceStepRecovery NodeFenceStepType = "recovery"
 )
 
 // +genclient=true
@@ -112,7 +112,7 @@ type NodeFencingList struct {
 
 // NodeFenceConfig holds configmap values
 type NodeFenceConfig struct {
-	NodeName        string   `json:"name" protobuf:"bytes,5,opt,name=node_name"`
+	Node core_v1.Node `json:"node" protobuf:"bytes,2,opt,name=node"`
 	PowerManagement []string `json:"items"`
 	Isolation       []string `json:"items"`
 	Recovery        []string `json:"items"`
@@ -166,4 +166,99 @@ func (vd *NodeFencingList) UnmarshalJSON(data []byte) error {
 	tmp2 := NodeFencingList(tmp)
 	*vd = tmp2
 	return nil
+}
+
+type ContentType uint8
+
+const (
+	Boolean ContentType = iota
+	String
+	Select
+)
+
+type Agent struct {
+	// Agent Name
+	Name string
+
+	// Description
+	Desc string
+
+	// Allowed Parameters
+	Parameters map[string]*Parameter
+
+	// command to execute
+	Command string
+
+	// The fencing device supports multiple ports (Virtal Machines, switch ports etc...)
+	//MultiplePorts bool
+
+	// Default fence action
+	//DefaultAction Action
+
+	// if not None the fence device requires unfencing
+	//UnfenceAction Action
+
+	// Fence device requires unfencing to be executed on the target node.
+	//UnfenceOnTarget bool
+
+	// Allowed Device Actions
+	Actions []Action
+}
+
+type Parameter struct {
+	// Parameter Name
+	Name string
+
+	// If false the parameter can be specified multiple times
+	Unique bool
+
+	// If true the parameter is required
+	Required bool
+
+	// Parameter description
+	Desc string
+
+	// Parameter Type
+	ContentType ContentType
+
+	// Default value. If nil no default values is defined.
+	Default interface{}
+
+	// If true the parameter's accepted values are provided by Options.
+	HasOptions bool
+
+	// Accepted parameter's values.
+	Options []interface{}
+}
+
+type Action uint8
+
+// Available actions
+const (
+	// No Action.
+	None Action = iota
+	// PowerOn Machine, disable port access etc...
+	On
+	// PowerOff Machine, disable port access etc...
+	Off
+	// Reboot Machine.
+	Reboot
+	// Get Machime, port etc... status
+	Status
+	// List available "ports". A port can be a virtual machine, a power
+	// port, a switch port etc... managed by this fence devices
+	List
+	// Check the health of the fence device itself
+	Monitor
+)
+
+// Action internal value to name translation. Used for logging and errors.
+var ActionMap = map[Action]string{
+	None:    "none",
+	On:      "on",
+	Off:     "off",
+	Reboot:  "reboot",
+	Status:  "status",
+	List:    "list",
+	Monitor: "monitor",
 }
