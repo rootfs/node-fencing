@@ -3,10 +3,10 @@
 all: controller executor
 
 controller:
-	go build -o _output/bin/node-fencing-controller cmd/node-fencing-controller.go
+	go build -i -o _output/bin/node-fencing-controller cmd/node-fencing-controller.go
 
 executor:
-	go build -o _output/bin/node-fencing-executor cmd/node-fencing-executor.go
+	go build -i -o _output/bin/node-fencing-executor cmd/node-fencing-executor.go
 
 clean:
 	-rm -rf _output

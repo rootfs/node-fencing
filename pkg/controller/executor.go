@@ -7,6 +7,7 @@ import (
 	"github.com/golang/glog"
 
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
+	"github.com/rootfs/node-fencing/pkg/fencing"
 
 	apiv1 "k8s.io/api/core/v1"
 
@@ -68,13 +69,13 @@ func (c *Executor) Run(ctx <-chan struct{}) {
 		glog.Errorf("node fencing informer controller initial sync timeout")
 		os.Exit(1)
 	}
+	glog.Infof("Watching node fencing object")
 }
 
 func (c *Executor) onNodeFencingAdd(obj interface{}) {
 	// TODO: fix current node fencing to align with design proposal
 	fence := obj.(*crdv1.NodeFencing)
 	fencing.ExecuteFenceAgents(fencing.GetNodeFenceConfig(&fence.Node, c.client), "step", c.client)
-
 }
 
 func (c *Executor) onNodeFencingUpdate(_, _ interface{}) {
