@@ -11,19 +11,26 @@ If nodes that have PVs on them become offline, the fencing controller tries to f
 
 ```console
 # make
-go build -o _output/bin/node-fencing-controller cmd/node-fencing-controller.go
-go build -o _output/bin/node-fencing-controller cmd/node-fencing-executor.go
 
 # _output/bin/node-fencing-controller -kubeconfig=/root/.kube/config 
-I1019 15:56:22.153571   22733 controller.go:78] pod controller starting
-I1019 15:56:22.153713   22733 controller.go:80] Waiting for informer initial sync
-I1019 15:56:23.153962   22733 controller.go:89] node controller starting
-I1019 15:56:23.154026   22733 controller.go:91] Waiting for informer initial sync
-W1019 15:56:23.209431   22733 controller.go:110] node node1 Ready status is unknown
-W1019 15:56:41.295320   22733 controller.go:142] node node2 Ready status is unknown
-W1019 15:56:41.295386   22733 controller.go:144] PVs on node node2:
-W1019 15:56:41.295411   22733 controller.go:146]     pvc-93f34cb8-b436-11e7-8789-00259003b6e8:
-I1019 15:56:42.138674   22733 fencing.go:20] fencing output: status :0
-I1019 15:56:42.138723   22733 fencing.go:22] fencing succeeded
 
+I1025 14:20:21.175263   23532 controller.go:92] pod controller starting
+I1025 14:20:21.175488   23532 controller.go:94] Waiting for informer initial sync
+I1025 14:20:22.218596   23532 controller.go:103] node controller starting
+I1025 14:20:22.218651   23532 controller.go:105] Waiting for informer initial sync
+W1025 14:33:03.903473   24998 controller.go:156] node node063 Ready status is unknown
+W1025 14:33:03.903515   24998 controller.go:158] PVs on node node063:
+W1025 14:33:03.903544   24998 controller.go:160]        pvc-b9e0e189-b98f-11e7-ae60-00259003b6e8:
+I1025 14:33:03.972356   24998 controller.go:294] posted NodeFencing CRD object for node node063
+```
+
+On a different console:
+
+```console
+# _output/bin/node-fencing-executor -kubeconfig=/root/.kube/config
+I1025 14:32:07.029897   24971 executor.go:60] node Fencing executor starting
+I1025 14:32:07.030096   24971 executor.go:62] Waiting for informer initial sync
+I1025 14:32:08.030295   24971 executor.go:70] Watching node fencing object
+I1025 14:33:04.587703   24971 fencing.go:20] fencing output: status :0
+I1025 14:33:04.587763   24971 fencing.go:22] fencing node node063 succeeded
 ```

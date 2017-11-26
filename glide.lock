@@ -1,5 +1,5 @@
 hash: d0b0cd3dc756fc4098f0eb329f910dfe156436057de5c5f925893af77f352943
-updated: 2017-10-23T12:55:26.110843344-04:00
+updated: 2017-10-25T11:33:54.071285677-04:00
 imports:
 - name: github.com/davecgh/go-spew
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
@@ -52,6 +52,8 @@ imports:
   - buffer
   - jlexer
   - jwriter
+- name: github.com/pborman/uuid
+  version: ca53cad383cad2479bbba7f7a1a05797ec1386e4
 - name: github.com/PuerkitoBio/purell
   version: 8a290539e2e8629dbc4e6bad948158f790ec31f4
 - name: github.com/PuerkitoBio/urlesc
@@ -72,11 +74,15 @@ imports:
   version: f2499483f923065a842d38eb4c7f1927e6fc6e6d
   subpackages:
   - context
-  - context/ctxhttp
+  - html
+  - html/atom
   - http2
   - http2/hpack
   - idna
+  - internal/timeseries
   - lex/httplex
+  - trace
+  - websocket
 - name: golang.org/x/sys
   version: 8f0908ab3b2457e2e15403d3697c9ef5cb4b57a9
   subpackages:
@@ -165,6 +171,7 @@ imports:
   - pkg/util/net
   - pkg/util/runtime
   - pkg/util/sets
+  - pkg/util/uuid
   - pkg/util/validation
   - pkg/util/validation/field
   - pkg/util/wait
@@ -216,4 +223,6 @@ imports:
   - util/integer
 - name: k8s.io/kubernetes
   version: df7f4b3526a580ef122aaeef61ab52842a60a88b
+  subpackages:
+  - pkg/util/goroutinemap/exponentialbackoff
 testImports: []

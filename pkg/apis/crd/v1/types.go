@@ -80,9 +80,13 @@ type NodeFencing struct {
 	// +optional
 	Node core_v1.Node `json:"node" protobuf:"bytes,2,opt,name=node"`
 
+	// PV presents the persistent volume attached/mounted on the node
+	// +optional
+	PV core_v1.PersistentVolume `json:"pv" protobuf:"bytes,3,opt,name=pv"`
+
 	// Status represents the latest observer state of the node fencing
 	// +optional
-	Status NodeFencingStatus `json:"status" protobuf:"bytes,3,opt,name=status"`
+	Status NodeFencingStatus `json:"status" protobuf:"bytes,4,opt,name=status"`
 }
 
 // NodeFencingList is a list of NodeFencing objects
