@@ -69,7 +69,11 @@ func (c *Executor) Run(ctx <-chan struct{}) {
 
 func (c *Executor) onNodeFencingAdd(obj interface{}) {
 	fence := obj.(*crdv1.NodeFence)
-	fencing.ExecuteFenceAgents(fencing.GetNodeFenceConfig(&fence.Node, c.client), fence.Step, c.client)
+	config, err := fencing.GetNodeFenceConfig(&fence.Node, c.client)
+	if err != nil {
+		glog.Errorf("node fencing failed on node %s", fence.Node.Name)
+	}
+	fencing.ExecuteFenceAgents(config, fence.Step, c.client)
 }
 
 func (c *Executor) onNodeFencingUpdate(_, _ interface{}) {

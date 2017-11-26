@@ -97,14 +97,14 @@ type NodeFence struct {
 
 	// PV presents the persistent volume attached/mounted on the node
 	// +optional
-	PV core_v1.PersistentVolume `json:"pv" protobuf:"bytes,3,opt,name=pv"`
+	//PV core_v1.PersistentVolume `json:"pv" protobuf:"bytes,3,opt,name=pv"`
 
 	// Status represents the latest observer state of the node fencing
 	Status NodeFencingStatus `json:"status" protobuf:"bytes,4,opt,name=status"`
 }
 
-// NodeFencingList is a list of NodeFence objects
-type NodeFencingList struct {
+// NodeFenceList is a list of NodeFence objects
+type NodeFenceList struct {
 	metav1.TypeMeta                 `json:",inline"`
 	Metadata        metav1.ListMeta `json:"metadata"`
 	Items           []NodeFence     `json:"items"`
@@ -129,17 +129,17 @@ func (n *NodeFence) GetObjectMeta() metav1.Object {
 }
 
 // GetObjectKind is required to satisfy Object interface
-func (nd *NodeFencingList) GetObjectKind() schema.ObjectKind {
+func (nd *NodeFenceList) GetObjectKind() schema.ObjectKind {
 	return &nd.TypeMeta
 }
 
 // GetListMeta is required to satisfy ListMetaAccessor interface
-func (nd *NodeFencingList) GetListMeta() metav1.List {
+func (nd *NodeFenceList) GetListMeta() metav1.List {
 	return &nd.Metadata
 }
 
-// NodeFencingListCopy is a NodeFencingList type
-type NodeFencingListCopy NodeFencingList
+// NodeFencingListCopy is a NodeFenceList type
+type NodeFencingListCopy NodeFenceList
 
 // NodeFencingCopy is a NodeFence type
 type NodeFencingCopy NodeFence
@@ -157,13 +157,13 @@ func (v *NodeFence) UnmarshalJSON(data []byte) error {
 }
 
 // UnmarshalJSON unmarshals json data
-func (vd *NodeFencingList) UnmarshalJSON(data []byte) error {
+func (vd *NodeFenceList) UnmarshalJSON(data []byte) error {
 	tmp := NodeFencingListCopy{}
 	err := json.Unmarshal(data, &tmp)
 	if err != nil {
 		return err
 	}
-	tmp2 := NodeFencingList(tmp)
+	tmp2 := NodeFenceList(tmp)
 	*vd = tmp2
 	return nil
 }

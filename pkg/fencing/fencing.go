@@ -13,7 +13,7 @@ import (
 	"syscall"
 )
 
-var agents map[string]crdv1.Agent
+var agents = make(map[string]crdv1.Agent)
 
 func init() {
 	// register agents
@@ -22,18 +22,20 @@ func init() {
 	// ...
 }
 
-func GetNodeFenceConfig(node *v1.Node, c kubernetes.Interface) crdv1.NodeFenceConfig {
+func GetNodeFenceConfig(node *v1.Node, c kubernetes.Interface) (crdv1.NodeFenceConfig, error) {
 	nodename := node.Name
 	fence_config_name := "fence-config-" + nodename
 	node_fields := getConfigValues(fence_config_name, "config.properties", c)
-
+	if node_fields == nil {
+		return crdv1.NodeFenceConfig{}, errors.New("failed to read fence config for node")
+	}
 	config := crdv1.NodeFenceConfig{
 		Node: *node,
 		Isolation: strings.Split(node_fields["isolation"], " "),
 		PowerManagement: strings.Split(node_fields["power_management"], " "),
 		Recovery: strings.Split(node_fields["Recovery"], " "),
 	}
-	return config
+	return config, nil
 }
 
 func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepType, c kubernetes.Interface) {
@@ -66,9 +68,6 @@ func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepTy
 			if err != nil {
 				glog.Errorf("failed to execute agent %s", err)
 			}
-
-		} else {
-			glog.Errorf("agent name field is missing from method config %s", method)
 		}
 	}
 }
@@ -100,21 +99,24 @@ func ExecuteFence(node *v1.Node, agent_name string) error {
 }
 
 func getMethodParams(node_name string, method_name string, c kubernetes.Interface) map[string]string {
-	method_full_name := "fence-method-config-" + node_name + method_name
+	method_full_name := "fence-method-" + method_name + "-" + node_name
 	return getConfigValues(method_full_name, "method.properties", c)
 }
 
 func getConfigValues(config_name string, config_type string, c kubernetes.Interface) map[string]string {
 	config, err := c.CoreV1().ConfigMaps("default").Get(config_name, metav1.GetOptions{})
 	if err != nil {
-		glog.Errorf("failed to get configmap %s", err)
+		glog.Errorf("failed to get %s", err)
+		return nil
 	}
 	properties, _ := config.Data[config_type]
 	fields := make(map[string]string)
 
 	for _, prop := range strings.Split(properties, "\n") {
 		param := strings.Split(prop, "=")
-		fields[param[0]] = param[1]
+		if len(param) == 2 {
+			fields[param[0]] = param[1]
+		}
 	}
 	return fields
 }
