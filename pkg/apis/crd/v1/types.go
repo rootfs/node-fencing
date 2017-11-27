@@ -25,36 +25,36 @@ import (
 )
 
 const (
-	NodeFencingResourcePlural = "nodefencings"
+	NodeFenceResourcePlural = "nodefences"
 )
 
-// NodeFencingStatus is the status of the NodeFence
-type NodeFencingStatus struct {
+// NodeFenceStatus is the status of the NodeFence
+type NodeFenceStatus struct {
 	// The time the fencing was successfully created
 	// +optional
 	CreationTimestamp metav1.Time `json:"creationTimestamp" protobuf:"bytes,1,opt,name=creationTimestamp"`
 
 	// Represent the latest available observations
-	Conditions []NodeFencingCondition `json:"conditions" protobuf:"bytes,2,rep,name=conditions"`
+	Conditions []NodeFenceCondition `json:"conditions" protobuf:"bytes,2,rep,name=conditions"`
 }
 
-// NodeFencingConditionType is the type of NodeFence conditions
-type NodeFencingConditionType string
+// NodeFenceConditionType is the type of NodeFence conditions
+type NodeFenceConditionType string
 
 // These are valid conditions of node fencing
 const (
-	// NodeFencingConditionRunning means the node fencing is being executed
-	NodeFencingConditionRunning NodeFencingConditionType = "Running"
-	// NodeFencingConditionDone is added when the node is successfully executed
-	NodeFencingConditionDone NodeFencingConditionType = "Done"
-	// NodeFencingConditionError means an error occurred during node fencing.
-	NodeFencingConditionError NodeFencingConditionType = "Error"
+	// NodeFenceConditionRunning means the node fencing is being executed
+	NodeFenceConditionRunning NodeFenceConditionType = "Running"
+	// NodeFenceConditionDone is added when the node is successfully executed
+	NodeFenceConditionDone NodeFenceConditionType = "Done"
+	// NodeFenceConditionError means an error occurred during node fencing.
+	NodeFenceConditionError NodeFenceConditionType = "Error"
 )
 
-// NodeFencingCondition describes the state of node fencing
-type NodeFencingCondition struct {
+// NodeFenceCondition describes the state of node fencing
+type NodeFenceCondition struct {
 	// Type of replication controller condition.
-	Type NodeFencingConditionType `json:"type" protobuf:"bytes,1,opt,name=type,casttype=NodeFencingConditionType"`
+	Type NodeFenceConditionType `json:"type" protobuf:"bytes,1,opt,name=type,casttype=NodeFenceConditionType"`
 	// Status of the condition, one of True, False, Unknown.
 	Status core_v1.ConditionStatus `json:"status" protobuf:"bytes,2,opt,name=status,casttype=ConditionStatus"`
 	// The last time the condition transitioned from one status to another.
@@ -100,7 +100,7 @@ type NodeFence struct {
 	//PV core_v1.PersistentVolume `json:"pv" protobuf:"bytes,3,opt,name=pv"`
 
 	// Status represents the latest observer state of the node fencing
-	Status NodeFencingStatus `json:"status" protobuf:"bytes,4,opt,name=status"`
+	Status NodeFenceStatus `json:"status" protobuf:"bytes,4,opt,name=status"`
 }
 
 // NodeFenceList is a list of NodeFence objects
@@ -138,15 +138,15 @@ func (nd *NodeFenceList) GetListMeta() metav1.List {
 	return &nd.Metadata
 }
 
-// NodeFencingListCopy is a NodeFenceList type
-type NodeFencingListCopy NodeFenceList
+// NodeFenceListCopy is a NodeFenceList type
+type NodeFenceListCopy NodeFenceList
 
-// NodeFencingCopy is a NodeFence type
-type NodeFencingCopy NodeFence
+// NodeFenceCopy is a NodeFence type
+type NodeFenceCopy NodeFence
 
 // UnmarshalJSON unmarshalls json data
 func (v *NodeFence) UnmarshalJSON(data []byte) error {
-	tmp := NodeFencingCopy{}
+	tmp := NodeFenceCopy{}
 	err := json.Unmarshal(data, &tmp)
 	if err != nil {
 		return err
@@ -158,7 +158,7 @@ func (v *NodeFence) UnmarshalJSON(data []byte) error {
 
 // UnmarshalJSON unmarshals json data
 func (vd *NodeFenceList) UnmarshalJSON(data []byte) error {
-	tmp := NodeFencingListCopy{}
+	tmp := NodeFenceListCopy{}
 	err := json.Unmarshal(data, &tmp)
 	if err != nil {
 		return err
