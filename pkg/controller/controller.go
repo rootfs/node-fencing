@@ -89,25 +89,25 @@ func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTC
 }
 
 func (c *Controller) Run(ctx <-chan struct{}) {
-	glog.Infof("pod controller starting")
+	glog.Infof("Fence controller starting")
+
 	go c.podController.Run(ctx)
 	glog.Infof("Waiting for informer initial sync")
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
 		return c.podController.HasSynced(), nil
 	})
 	if !c.podController.HasSynced() {
-		glog.Errorf("pod informer controller initial sync timeout")
+		glog.Errorf("pod informer initial sync timeout")
 		os.Exit(1)
 	}
 
-	glog.Infof("node controller starting")
 	go c.nodeController.Run(ctx)
 	glog.Infof("Waiting for informer initial sync")
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
 		return c.nodeController.HasSynced(), nil
 	})
 	if !c.nodeController.HasSynced() {
-		glog.Errorf("node informer controller initial sync timeout")
+		glog.Errorf("node informer initial sync timeout")
 		os.Exit(1)
 	}
 }
@@ -121,13 +121,15 @@ func (c *Controller) onNodeAdd(obj interface{}) {
 
 	for _, condition := range conditions {
 		if v1.NodeReady == condition.Type && v1.ConditionUnknown == condition.Status {
-			glog.Warningf("node %s Ready status is unknown", nodeName)
+			glog.Warningf("Node %s ready status is unknown", nodeName)
 			if len(c.nodePVMap[nodeName]) > 0 {
 				glog.Warningf("PVs on node %s:", nodeName)
 				for _, pv := range c.nodePVMap[nodeName] {
 					glog.Warningf("\t%v:", pv.Name)
 					c.postNodeFencing(node, pv)
 				}
+			} else {
+				c.postNodeFencing(node, nil)
 			}
 		}
 	}
@@ -160,6 +162,8 @@ func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 						glog.Warningf("\t%v:", pv.Name)
 						c.postNodeFencing(newNode, pv)
 					}
+				} else {
+					c.postNodeFencing(newNode, nil)
 				}
 			}
 		}
@@ -259,16 +263,18 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 	glog.V(6).Infof("node %s pv map: %v", node, c.nodePVMap[node])
 }
 
-func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
-	//fencing.Fencing(node, pv)
-	nfName := fmt.Sprintf("node-fencing-%s-%s-%s", node.Name, pv.Name, uuid.NewUUID())
 
-	nodeFencing := &crdv1.NodeFencing{
+func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
+	nfName := fmt.Sprintf("node-fence-%s-%s", node.Name, uuid.NewUUID())
+
+	nodeFencing := &crdv1.NodeFence{
 		Metadata: metav1.ObjectMeta{
 			Name: nfName,
 		},
+		CleanResources: true,
+		Step: crdv1.NodeFenceStepIsolation,
 		Node: *node,
-		PV:   *pv,
+		//PV:   *pv,
 	}
 
 	backoff := wait.Backoff{
@@ -276,10 +282,10 @@ func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
 		Factor:   crdPostFactor,
 		Steps:    crdPostSteps,
 	}
-	var result crdv1.NodeFencing
+	var result crdv1.NodeFence
 	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
 		err := c.crdClient.Post().
-			Resource(crdv1.NodeFencingResourcePlural).
+			Resource(crdv1.NodeFenceResourcePlural).
 			Body(nodeFencing).
 			Do().Into(&result)
 		if err != nil {
@@ -289,8 +295,8 @@ func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
 		return true, nil
 	})
 	if err != nil {
-		glog.Warningf("failed to post NodeFencing CRD object: %v", err)
+		glog.Warningf("failed to post NodeFence CRD object: %v", err)
 	} else {
-		glog.Infof("posted NodeFencing CRD object for node %s", node.Name)
+		glog.Infof("posted NodeFence CRD object for node %s", node.Name)
 	}
 }

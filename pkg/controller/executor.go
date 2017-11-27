@@ -3,12 +3,9 @@ package controller
 import (
 	"os"
 	"time"
-
 	"github.com/golang/glog"
-
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
 	"github.com/rootfs/node-fencing/pkg/fencing"
-
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -20,29 +17,29 @@ import (
 )
 
 type Executor struct {
-	crdClient             *rest.RESTClient
-	crdScheme             *runtime.Scheme
-	client                kubernetes.Interface
-	nodeFencingController cache.Controller
+	crdClient           *rest.RESTClient
+	crdScheme           *runtime.Scheme
+	client              kubernetes.Interface
+	nodeFenceController cache.Controller
 }
 
-func NewNodeFencingExecutorController(client kubernetes.Interface, crdClient *rest.RESTClient, crdScheme *runtime.Scheme) *Executor {
+func NewNodeFenceExecutorController(client kubernetes.Interface, crdClient *rest.RESTClient, crdScheme *runtime.Scheme) *Executor {
 	c := &Executor{
 		client:    client,
 		crdClient: crdClient,
 		crdScheme: crdScheme,
 	}
 
-	// Watch NodeFencing objects
+	// Watch NodeFence objects
 	source := cache.NewListWatchFromClient(
 		c.crdClient,
-		crdv1.NodeFencingResourcePlural,
+		crdv1.NodeFenceResourcePlural,
 		apiv1.NamespaceAll,
 		fields.Everything())
 
-	_, nodeFencingController := cache.NewInformer(
+	_, nodeFenceController := cache.NewInformer(
 		source,
-		&crdv1.NodeFencing{},
+		&crdv1.NodeFence{},
 		time.Minute*60,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    c.onNodeFencingAdd,
@@ -51,35 +48,40 @@ func NewNodeFencingExecutorController(client kubernetes.Interface, crdClient *re
 		},
 	)
 
-	c.nodeFencingController = nodeFencingController
+	c.nodeFenceController = nodeFenceController
 
 	return c
 }
 
 func (c *Executor) Run(ctx <-chan struct{}) {
-	glog.Infof("node Fencing executor starting")
-	go c.nodeFencingController.Run(ctx)
+	glog.Infof("Node fence executor starting")
+	go c.nodeFenceController.Run(ctx)
 	glog.Infof("Waiting for informer initial sync")
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
-		return c.nodeFencingController.HasSynced(), nil
+		return c.nodeFenceController.HasSynced(), nil
 	})
-	if !c.nodeFencingController.HasSynced() {
-		glog.Errorf("node fencing informer controller initial sync timeout")
+	if !c.nodeFenceController.HasSynced() {
+		glog.Errorf("node fence informer controller initial sync timeout")
 		os.Exit(1)
 	}
-	glog.Infof("Watching node fencing object")
+	glog.Infof("Watching node fence objects")
 }
 
 func (c *Executor) onNodeFencingAdd(obj interface{}) {
-	nodeFencing := obj.(*crdv1.NodeFencing)
-	node := nodeFencing.Node
-	pv := nodeFencing.PV
-	glog.V(3).Infof("fence node: %s", node.Name)
-	fencing.Fencing(&node, &pv)
+	fence := obj.(*crdv1.NodeFence)
+	config, err := fencing.GetNodeFenceConfig(&fence.Node, c.client)
+	if err != nil {
+		glog.Errorf("node fencing failed on node %s", fence.Node.Name)
+	}
+	fencing.ExecuteFenceAgents(config, fence.Step, c.client)
 }
 
-func (c *Executor) onNodeFencingUpdate(_, _ interface{}) {
+func (c *Executor) onNodeFencingUpdate(oldObj, _ interface{}) {
+	oldfence := oldObj.(*crdv1.NodeFence)
+	glog.Infof("node fence object updated %s", oldfence.Metadata.Name)
 }
 
-func (c *Executor) onNodeFencingDelete(_ interface{}) {
+func (c *Executor) onNodeFencingDelete(obj interface{}) {
+	fence := obj.(*crdv1.NodeFence)
+	glog.Infof("node fence object removed %s", fence.Metadata.Name)
 }
