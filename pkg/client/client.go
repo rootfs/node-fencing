@@ -59,14 +59,14 @@ func NewClient(cfg *rest.Config) (*rest.RESTClient, *runtime.Scheme, error) {
 func CreateCRD(clientset apiextensionsclient.Interface) error {
 	crd := &apiextensionsv1beta1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: crdv1.NodeFencingResourcePlural + "." + crdv1.GroupName,
+			Name: crdv1.NodeFenceResourcePlural + "." + crdv1.GroupName,
 		},
 		Spec: apiextensionsv1beta1.CustomResourceDefinitionSpec{
 			Group:   crdv1.GroupName,
 			Version: crdv1.SchemeGroupVersion.Version,
 			Scope:   apiextensionsv1beta1.ClusterScoped,
 			Names: apiextensionsv1beta1.CustomResourceDefinitionNames{
-				Plural: crdv1.NodeFencingResourcePlural,
+				Plural: crdv1.NodeFenceResourcePlural,
 				Kind:   reflect.TypeOf(crdv1.NodeFence{}).Name(),
 			},
 		},
@@ -84,7 +84,7 @@ func CreateCRD(clientset apiextensionsclient.Interface) error {
 func WaitForCRDResource(crdClient *rest.RESTClient) error {
 	return wait.Poll(100*time.Millisecond, 60*time.Second, func() (bool, error) {
 		_, err := crdClient.Get().
-			Resource(crdv1.NodeFencingResourcePlural).DoRaw()
+			Resource(crdv1.NodeFenceResourcePlural).DoRaw()
 		if err == nil {
 			return true, nil
 		}

@@ -17,13 +17,13 @@ import (
 )
 
 type Executor struct {
-	crdClient             *rest.RESTClient
-	crdScheme             *runtime.Scheme
-	client                kubernetes.Interface
-	nodeFencingController cache.Controller
+	crdClient           *rest.RESTClient
+	crdScheme           *runtime.Scheme
+	client              kubernetes.Interface
+	nodeFenceController cache.Controller
 }
 
-func NewNodeFencingExecutorController(client kubernetes.Interface, crdClient *rest.RESTClient, crdScheme *runtime.Scheme) *Executor {
+func NewNodeFenceExecutorController(client kubernetes.Interface, crdClient *rest.RESTClient, crdScheme *runtime.Scheme) *Executor {
 	c := &Executor{
 		client:    client,
 		crdClient: crdClient,
@@ -33,11 +33,11 @@ func NewNodeFencingExecutorController(client kubernetes.Interface, crdClient *re
 	// Watch NodeFence objects
 	source := cache.NewListWatchFromClient(
 		c.crdClient,
-		crdv1.NodeFencingResourcePlural,
+		crdv1.NodeFenceResourcePlural,
 		apiv1.NamespaceAll,
 		fields.Everything())
 
-	_, nodeFencingController := cache.NewInformer(
+	_, nodeFenceController := cache.NewInformer(
 		source,
 		&crdv1.NodeFence{},
 		time.Minute*60,
@@ -48,23 +48,23 @@ func NewNodeFencingExecutorController(client kubernetes.Interface, crdClient *re
 		},
 	)
 
-	c.nodeFencingController = nodeFencingController
+	c.nodeFenceController = nodeFenceController
 
 	return c
 }
 
 func (c *Executor) Run(ctx <-chan struct{}) {
-	glog.Infof("node Fencing executor starting")
-	go c.nodeFencingController.Run(ctx)
+	glog.Infof("Node fence executor starting")
+	go c.nodeFenceController.Run(ctx)
 	glog.Infof("Waiting for informer initial sync")
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
-		return c.nodeFencingController.HasSynced(), nil
+		return c.nodeFenceController.HasSynced(), nil
 	})
-	if !c.nodeFencingController.HasSynced() {
-		glog.Errorf("node fencing informer controller initial sync timeout")
+	if !c.nodeFenceController.HasSynced() {
+		glog.Errorf("node fence informer controller initial sync timeout")
 		os.Exit(1)
 	}
-	glog.Infof("Watching node fencing object")
+	glog.Infof("Watching node fence objects")
 }
 
 func (c *Executor) onNodeFencingAdd(obj interface{}) {

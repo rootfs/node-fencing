@@ -44,7 +44,7 @@ func main() {
 		panic(err)
 	}
 
-	ctrl := controller.NewNodeFencingExecutorController(client, crdClient, crdScheme)
+	ctrl := controller.NewNodeFenceExecutorController(client, crdClient, crdScheme)
 	stopCh := make(chan struct{})
 
 	go ctrl.Run(stopCh)
