@@ -49,6 +49,8 @@ const (
 	NodeFenceConditionDone NodeFenceConditionType = "Done"
 	// NodeFenceConditionError means an error occurred during node fencing.
 	NodeFenceConditionError NodeFenceConditionType = "Error"
+	// NodeFenceConditionNew new created fence object.
+	NodeFenceConditionNew NodeFenceConditionType = "New"
 )
 
 // NodeFenceCondition describes the state of node fencing
@@ -87,7 +89,7 @@ type NodeFence struct {
 	Metadata        metav1.ObjectMeta `json:"metadata"`
 
 	// Node represents the node to be fenced.
-	Node core_v1.Node `json:"node" protobuf:"bytes,2,opt,name=node"`
+	NodeName string `json:"node" protobuf:"bytes,2,opt,name=node"`
 
 	// Step represent the current step in the fence operation
 	Step NodeFenceStepType `json:"step" protobuf:"bytes,5,opt,name=step"`
@@ -100,19 +102,20 @@ type NodeFence struct {
 	//PV core_v1.PersistentVolume `json:"pv" protobuf:"bytes,3,opt,name=pv"`
 
 	// Status represents the latest observer state of the node fencing
-	Status NodeFenceStatus `json:"status" protobuf:"bytes,4,opt,name=status"`
+	//Status NodeFenceStatus `json:"status" protobuf:"bytes,4,opt,name=status"`
+	Status NodeFenceConditionType `json:"status" protobuf:"bytes,4,opt,name=status"`
 }
 
 // NodeFenceList is a list of NodeFence objects
 type NodeFenceList struct {
-	metav1.TypeMeta                 `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
 	Metadata        metav1.ListMeta `json:"metadata"`
 	Items           []NodeFence     `json:"items"`
 }
 
 // NodeFenceConfig holds configmap values
 type NodeFenceConfig struct {
-	Node core_v1.Node `json:"node" protobuf:"bytes,2,opt,name=node"`
+	NodeName        string   `json:"node" protobuf:"bytes,2,opt,name=node"`
 	PowerManagement []string `json:"items"`
 	Isolation       []string `json:"items"`
 	Recovery        []string `json:"items"`
@@ -183,26 +186,8 @@ type Agent struct {
 	// Description
 	Desc string
 
-	// Allowed Parameters
-	Parameters map[string]*Parameter
-
 	// command to execute
-	Command string
-
-	// The fencing device supports multiple ports (Virtal Machines, switch ports etc...)
-	//MultiplePorts bool
-
-	// Default fence action
-	//DefaultAction Action
-
-	// if not None the fence device requires unfencing
-	//UnfenceAction Action
-
-	// Fence device requires unfencing to be executed on the target node.
-	//UnfenceOnTarget bool
-
-	// Allowed Device Actions
-	Actions []Action
+	Function func(params map[string]string) error
 }
 
 type Parameter struct {
