@@ -104,6 +104,9 @@ type NodeFence struct {
 	// Status represents the latest observer state of the node fencing
 	//Status NodeFenceStatus `json:"status" protobuf:"bytes,4,opt,name=status"`
 	Status NodeFenceConditionType `json:"status" protobuf:"bytes,4,opt,name=status"`
+
+	// If running hostname is set with executor hostname
+	Hostname string `json:"hostname" protobuf:"bytes,4,opt,name=hostname"`
 }
 
 // NodeFenceList is a list of NodeFence objects

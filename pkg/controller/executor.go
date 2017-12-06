@@ -79,31 +79,45 @@ func (c *Executor) handleExistingNodeFences() {
 			glog.Infof("Read %s ..", nf.Metadata.Name)
 			switch nf.Status {
 			case crdv1.NodeFenceConditionNew:
-				config, err := fencing.GetNodeFenceConfig(nf.NodeName, c.client)
-				if err != nil {
-					glog.Errorf("node fencing failed on node %s", nf.NodeName)
-				}
-				nf.Status = crdv1.NodeFenceConditionRunning
-				err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-				if err != nil {
-					glog.Errorf("Failed to update status to 'running': %s", err)
-					return
-				}
-				fencing.ExecuteFenceAgents(config, nf.Step, c.client)
+				c.startExecution(nf)
+			case crdv1.NodeFenceConditionError:
+				// Check if current host failed to run - if so, let controller initiate new executor
 			case crdv1.NodeFenceConditionRunning:
-				glog.Info("node fence is running on: [TODO: fill with executor address]")
+				glog.Infof("Node fence is already running on: %s", nf.Hostname)
 			}
 		}
 	}
 }
 
+func (c *Executor) startExecution(nf crdv1.NodeFence) {
+	config, err := fencing.GetNodeFenceConfig(nf.NodeName, c.client)
+	if err != nil {
+		glog.Errorf("node fencing failed on node %s", nf.NodeName)
+	}
+	nf.Status = crdv1.NodeFenceConditionRunning
+	hostname, _ := os.Hostname()
+	nf.Hostname = hostname
+	err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+	if err != nil {
+		glog.Errorf("Failed to update status to 'running': %s", err)
+		return
+	}
+	err = fencing.ExecuteFenceAgents(config, nf.Step, c.client)
+	if err != nil {
+		nf.Status = crdv1.NodeFenceConditionError
+	} else {
+		nf.Status = crdv1.NodeFenceConditionDone
+	}
+	err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+	if err != nil {
+		glog.Errorf("Failed to update status to 'running': %s", err)
+		return
+	}
+}
+
 func (c *Executor) onNodeFencingAdd(obj interface{}) {
 	fence := obj.(*crdv1.NodeFence)
-	config, err := fencing.GetNodeFenceConfig(fence.NodeName, c.client)
-	if err != nil {
-		glog.Errorf("node fencing failed on node %s", fence.NodeName)
-	}
-	fencing.ExecuteFenceAgents(config, fence.Step, c.client)
+	c.startExecution(*fence)
 }
 
 func (c *Executor) onNodeFencingUpdate(oldObj, _ interface{}) {
