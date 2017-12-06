@@ -2,6 +2,7 @@ package fencing
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -20,13 +21,13 @@ func init() {
 	// register agents
 	agents["ssh"] = crdv1.Agent{
 		Name:     "ssh",
-		Desc:     "agent login to host via ssh and restart kubelet",
+		Desc:     "Agent login to host via ssh and restart kubelet - requires copy-id first to allow root login",
 		Function: sshFenceAgentFunc,
 	}
-	agents["fence_eaton_snmp"] = crdv1.Agent{
-		Name:     "fence_eaton_snmp",
-		Desc:     "fence eaton agent to perform power management operations",
-		Function: eatonSNMPAgentFunc,
+	agents["fence_apc_snmp"] = crdv1.Agent{
+		Name:     "fence_apc_snmp",
+		Desc:     "Fence agent for APC, Tripplite PDU over SNMP",
+		Function: apcSNMPAgentFunc,
 	}
 }
 
@@ -38,13 +39,34 @@ func sshFenceAgentFunc(params map[string]string, node *v1.Node) error {
 	glog.Infof("fencing output: %s", string(output))
 	if err != nil {
 		glog.Infof("Fencing address: %s failed", add)
+		return err
 	}
 	return nil
 }
 
-func eatonSNMPAgentFunc(_ map[string]string, _ *v1.Node) error {
-	// run command "/usr/bin/fence_eaton_snmp" with node.Status.Addresses.Address
-	glog.Warning("EatonSNMPAgentFunc is not implemented yet")
+func apcSNMPAgentFunc(params map[string]string, _ *v1.Node) error {
+	ip := fmt.Sprintf("--ip=%s", params["address"])
+	username := fmt.Sprintf("--username=%s", params["username"])
+	password := fmt.Sprintf("--password=%s", params["password"])
+	plug := fmt.Sprintf("--plug=%s", params["plug"])
+	action := fmt.Sprintf("--action=%s", params["action"])
+
+	cmd := exec.Command(
+		"/usr/bin/python",
+		"/usr/sbin/fence_apc_snmp",
+		ip,
+		password,
+		username,
+		plug,
+		action,
+	)
+	WaitTimeout(cmd, 1000)
+	output, err := cmd.CombinedOutput()
+	glog.Infof("fencing output: %s", string(output))
+	if err != nil {
+		glog.Infof("Fencing address: %s failed", params["address"])
+		return err
+	}
 	return nil
 }
 
@@ -66,7 +88,7 @@ func GetNodeFenceConfig(nodeName string, c kubernetes.Interface) (crdv1.NodeFenc
 }
 
 // ExecuteFenceAgents gets fenceconfig and step, parse it, and calls executeFence
-func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepType, c kubernetes.Interface) {
+func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepType, c kubernetes.Interface) error {
 	glog.Infof("Start fence execution for node: %s", config.NodeName)
 	methods := []string{}
 
@@ -79,6 +101,7 @@ func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepTy
 		methods = config.PowerManagement
 	default:
 		glog.Errorf("step is invalid %s", step)
+		return errors.New("invalid step parameter")
 	}
 
 	for _, method := range methods {
@@ -96,14 +119,16 @@ func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepTy
 		node, err := c.CoreV1().Nodes().Get(config.NodeName, metav1.GetOptions{})
 		if err != nil {
 			glog.Errorf("Failed to get node: %s", err)
-			return
+			return err
 		}
 		err = executeFence(params, node)
 		if err != nil {
 			glog.Errorf("Failed: %s", err)
+			return err
 		}
 	}
 	glog.Infof("Finish execution for node: %s", config.NodeName)
+	return nil
 }
 
 func executeFence(params map[string]string, node *v1.Node) error {
