@@ -9,6 +9,7 @@ import (
 
 	"github.com/golang/glog"
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -29,25 +30,26 @@ func init() {
 	}
 }
 
-func sshFenceAgentFunc(params map[string]string) error {
-	cmd := exec.Command("/usr/bin/k8s_node_fencing.sh", params["Address"])
+func sshFenceAgentFunc(params map[string]string, node *v1.Node) error {
+	add := node.Status.Addresses[0].Address
+	cmd := exec.Command("/bin/sh", "/usr/bin/k8s_node_fencing.sh", add)
 	WaitTimeout(cmd, 1000)
 	output, err := cmd.CombinedOutput()
 	glog.Infof("fencing output: %s", string(output))
-	if err == nil {
-		glog.Infof("fencing node %s succeeded", params["nodeName"])
-		return nil
+	if err != nil {
+		glog.Infof("Fencing address: %s failed", add)
 	}
-	return err
+	return nil
 }
 
-func eatonSNMPAgentFunc(_ map[string]string) error {
+func eatonSNMPAgentFunc(_ map[string]string, _ *v1.Node) error {
 	// run command "/usr/bin/fence_eaton_snmp" with node.Status.Addresses.Address
 	glog.Warning("EatonSNMPAgentFunc is not implemented yet")
 	return nil
 }
 
-func getNodeFenceConfig(nodeName string, c kubernetes.Interface) (crdv1.NodeFenceConfig, error) {
+// GetNodeFenceConfig find the nodefenceconfig obj relate to nodeName
+func GetNodeFenceConfig(nodeName string, c kubernetes.Interface) (crdv1.NodeFenceConfig, error) {
 	nodename := nodeName
 	fenceConfigName := "fence-config-" + nodename
 	nodeFields := getConfigValues(fenceConfigName, "config.properties", c)
@@ -65,6 +67,7 @@ func getNodeFenceConfig(nodeName string, c kubernetes.Interface) (crdv1.NodeFenc
 
 // ExecuteFenceAgents gets fenceconfig and step, parse it, and calls executeFence
 func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepType, c kubernetes.Interface) {
+	glog.Infof("Start fence execution for node: %s", config.NodeName)
 	methods := []string{}
 
 	switch step {
@@ -87,30 +90,38 @@ func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepTy
 				params[k] = v
 			}
 		}
-		err := executeFence(params)
+		glog.Infof("Executing method: %s", method)
+
+		// need to fetch the address somehow :|
+		node, err := c.CoreV1().Nodes().Get(config.NodeName, metav1.GetOptions{})
 		if err != nil {
-			glog.Errorf("failed to execute agent %s", err)
+			glog.Errorf("Failed to get node: %s", err)
+			return
+		}
+		err = executeFence(params, node)
+		if err != nil {
+			glog.Errorf("Failed: %s", err)
 		}
 	}
+	glog.Infof("Finish execution for node: %s", config.NodeName)
 }
 
-func executeFence(params map[string]string) error {
+func executeFence(params map[string]string, node *v1.Node) error {
 	if agentName, exists := params["agent_name"]; exists {
 		if agent, exists := agents[agentName]; exists {
 			if exists != true {
-				glog.Infof("Failed to find agent: %s", agentName)
 				return errors.New("failed to find agent")
 			}
-			err := agent.Function(params)
+			err := agent.Function(params, node)
 			if err != nil {
-				glog.Infof("fencing node failed: %s", err)
+				glog.Errorf("fencing node failed: %s", err)
 				return err
 			}
 			// success
 			return nil
 		}
 	}
-	return errors.New("agent name does not exist in fence parameters")
+	return errors.New("agent_name field does not exist in method config")
 }
 
 func getMethodParams(nodeName string, methodName string, c kubernetes.Interface) map[string]string {

@@ -74,11 +74,11 @@ type NodeFenceStepType string
 
 const (
 	// NodeFenceStepIsolation means the fence process in isolation phase
-	NodeFenceStepIsolation NodeFenceStepType = "isolation"
+	NodeFenceStepIsolation NodeFenceStepType = "Isolation"
 	// NodeFenceStepPowerManagement means the fence process in pm phase
-	NodeFenceStepPowerManagement NodeFenceStepType = "power-management"
+	NodeFenceStepPowerManagement NodeFenceStepType = "Power-Management"
 	// NodeFenceStepPowerRecovery means the fence process in recovery phase
-	NodeFenceStepRecovery NodeFenceStepType = "recovery"
+	NodeFenceStepRecovery NodeFenceStepType = "Recovery"
 )
 
 // +genclient=true
@@ -187,7 +187,7 @@ type Agent struct {
 	Desc string
 
 	// command to execute
-	Function func(params map[string]string) error
+	Function func(params map[string]string, node *core_v1.Node) error
 }
 
 type Parameter struct {

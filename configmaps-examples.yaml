@@ -17,10 +17,10 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-config-host1
+   name: fence-config-lago-kube-host1
   data:
    config.properties: |-
-    node_name=host
+    node_name=lago-kube-host1
     isolation=fc-off
     power_management=eaton-off eaton-on
     recovery=fc-on
@@ -73,7 +73,7 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-fc-off-host0
+   name: fence-method-fc-off-lago-kube-host0
    namespace: default
   data:
    method.properties: |
@@ -83,7 +83,7 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-fc-on-host0
+   name: fence-method-fc-on-lago-kube-host0
    namespace: default
   data:
    method.properties: |
@@ -93,7 +93,7 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-fc-off-host0
+   name: fence-method-fc-off-lago-kube-host1
    namespace: default
   data:
    method.properties: |
@@ -103,7 +103,7 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-fc-on-host0
+   name: fence-method-fc-on-lago-kube-host1
    namespace: default
   data:
    method.properties: |-
@@ -113,7 +113,7 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-eaton-off-host0
+   name: fence-method-eaton-off-lago-kube-host0
    namespace: default
   data:
    method.properties: |-
@@ -124,7 +124,7 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-eaton-on-host0
+   name: fence-method-eaton-on-lago-kube-host0
    namespace: default
   data:
    method.properties: |-
@@ -135,7 +135,7 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-eaton-off-host1
+   name: fence-method-eaton-off-lago-kube-host1
    namespace: default
   data:
    method.properties: |-
@@ -146,7 +146,7 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-eaton-on-host1
+   name: fence-method-eaton-on-lago-kube-host1
    namespace: default
   data:
    method.properties: |-
@@ -162,6 +162,8 @@ items:
    namespace: default
   data:
    method.properties: |-
+     agent_name=ssh
+     node_name=lago-kube-host0
 
 - kind: ConfigMap
   apiVersion: v1
@@ -170,3 +172,5 @@ items:
    namespace: default
   data:
    method.properties: |-
+     agent_name=ssh
+     node_name=lago-kube-host1
