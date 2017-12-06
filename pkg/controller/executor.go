@@ -3,6 +3,7 @@ package controller
 import (
 	"os"
 	"time"
+
 	"github.com/golang/glog"
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
 	"github.com/rootfs/node-fencing/pkg/fencing"
@@ -65,13 +66,42 @@ func (c *Executor) Run(ctx <-chan struct{}) {
 		os.Exit(1)
 	}
 	glog.Infof("Watching node fence objects")
+	c.handleExistingNodeFences()
+}
+
+func (c *Executor) handleExistingNodeFences() {
+	var nodeFences crdv1.NodeFenceList
+	err := c.crdClient.Get().Resource(crdv1.NodeFenceResourcePlural).Do().Into(&nodeFences)
+	if err != nil {
+		glog.Errorf("something went wrong - could not fetch nodefences - %s", err)
+	} else {
+		for _, nf := range nodeFences.Items {
+			glog.Infof("Read %s ..", nf.Metadata.Name)
+			switch nf.Status {
+			case crdv1.NodeFenceConditionNew:
+				config, err := fencing.GetNodeFenceConfig(nf.NodeName, c.client)
+				if err != nil {
+					glog.Errorf("node fencing failed on node %s", nf.NodeName)
+				}
+				nf.Status = crdv1.NodeFenceConditionRunning
+				err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+				if err != nil {
+					glog.Errorf("Failed to update status to 'running': %s", err)
+					return
+				}
+				fencing.ExecuteFenceAgents(config, nf.Step, c.client)
+			case crdv1.NodeFenceConditionRunning:
+				glog.Info("node fence is running on: [TODO: fill with executor address]")
+			}
+		}
+	}
 }
 
 func (c *Executor) onNodeFencingAdd(obj interface{}) {
 	fence := obj.(*crdv1.NodeFence)
-	config, err := fencing.GetNodeFenceConfig(&fence.Node, c.client)
+	config, err := fencing.GetNodeFenceConfig(fence.NodeName, c.client)
 	if err != nil {
-		glog.Errorf("node fencing failed on node %s", fence.Node.Name)
+		glog.Errorf("node fencing failed on node %s", fence.NodeName)
 	}
 	fencing.ExecuteFenceAgents(config, fence.Step, c.client)
 }

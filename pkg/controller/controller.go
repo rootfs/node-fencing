@@ -263,7 +263,6 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 	glog.V(6).Infof("node %s pv map: %v", node, c.nodePVMap[node])
 }
 
-
 func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
 	nfName := fmt.Sprintf("node-fence-%s-%s", node.Name, uuid.NewUUID())
 
@@ -272,9 +271,9 @@ func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
 			Name: nfName,
 		},
 		CleanResources: true,
-		Step: crdv1.NodeFenceStepIsolation,
-		Node: *node,
-		//PV:   *pv,
+		Step:           crdv1.NodeFenceStepIsolation,
+		NodeName:       node.Name,
+		Status:         crdv1.NodeFenceConditionNew,
 	}
 
 	backoff := wait.Backoff{
