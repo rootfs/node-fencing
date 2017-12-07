@@ -4,14 +4,14 @@
 pre-alpha
 
 # Goal
-The goal is to run the controller, filter Pods and find where they are and whether have any PVs. 
+The goal is to run the controller, filter Pods and find where they are and whether have any PVs.
 If nodes that have PVs on them become offline, the fencing controller tries to force detach or even STONITH the node
 
 # Demo
 
 ```console
 # make
-# _output/bin/node-fencing-controller -kubeconfig=/root/.kube/config 
+# standalone-controller/node-fencing-controller -kubeconfig=standalone-controller/config
 
 I1025 14:20:21.175263   23532 controller.go:92] pod controller starting
 I1025 14:20:21.175488   23532 controller.go:94] Waiting for informer initial sync
@@ -26,7 +26,7 @@ I1025 14:33:03.972356   24998 controller.go:294] posted NodeFencing CRD object f
 On a different console:
 
 ```console
-# _output/bin/node-fencing-executor -kubeconfig=/root/.kube/config
+# standalone-executor/node-fencing-executor -kubeconfig=standalone-executor/config
 I1025 14:32:07.029897   24971 executor.go:60] node Fencing executor starting
 I1025 14:32:07.030096   24971 executor.go:62] Waiting for informer initial sync
 I1025 14:32:08.030295   24971 executor.go:70] Watching node fencing object

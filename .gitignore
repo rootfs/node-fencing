@@ -1,2 +1,3 @@
 *~
-/_output/*
+standalone-controller/_output/*
+standalone-executor/_output/*

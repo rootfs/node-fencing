@@ -1,0 +1,17 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: standalone-fence-controller
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: standalone-fence-controller
+    spec:
+      containers:
+      - name: standalone-fence-controller
+        image: "quay.io/fence/standalone-fence-controller:latest"
+        imagePullPolicy: IfNotPresent
