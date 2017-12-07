@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: executor
+spec:
+  template:
+    metadata:
+      name: executor
+    spec:
+      containers:
+      - name: executor
+        image: quay.io/bronhaim/standalone-fence-executor:latest        
+      restartPolicy: Never
+  backoffLimit: 3
