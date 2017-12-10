@@ -126,10 +126,10 @@ func (c *Controller) onNodeAdd(obj interface{}) {
 				glog.Warningf("PVs on node %s:", nodeName)
 				for _, pv := range c.nodePVMap[nodeName] {
 					glog.Warningf("\t%v:", pv.Name)
-					c.postNodeFencing(node, pv)
+					c.createNewNodeFenceObject(node, pv)
 				}
 			} else {
-				c.postNodeFencing(node, nil)
+				c.createNewNodeFenceObject(node, nil)
 			}
 		}
 	}
@@ -263,7 +263,7 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 	glog.V(6).Infof("node %s pv map: %v", node, c.nodePVMap[node])
 }
 
-func (c *Controller) postNodeFencing(node *v1.Node, pv *v1.PersistentVolume) {
+func (c *Controller) createNewNodeFenceObject(node *v1.Node, pv *v1.PersistentVolume) {
 	nfName := fmt.Sprintf("node-fence-%s-%s", node.Name, uuid.NewUUID())
 
 	nodeFencing := &crdv1.NodeFence{
