@@ -120,9 +120,9 @@ func (c *Executor) onNodeFencingAdd(obj interface{}) {
 	c.startExecution(*fence)
 }
 
-func (c *Executor) onNodeFencingUpdate(oldObj, _ interface{}) {
-	oldfence := oldObj.(*crdv1.NodeFence)
-	glog.Infof("node fence object updated %s", oldfence.Metadata.Name)
+func (c *Executor) onNodeFencingUpdate(_, newObj interface{}) {
+	fence := newObj.(*crdv1.NodeFence)
+	c.startExecution(*fence)
 }
 
 func (c *Executor) onNodeFencingDelete(obj interface{}) {

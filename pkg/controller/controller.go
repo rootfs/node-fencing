@@ -110,6 +110,41 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 		glog.Errorf("node informer initial sync timeout")
 		os.Exit(1)
 	}
+	go c.handleExistingNodeFences(2)
+}
+
+func (c *Controller) handleExistingNodeFences(when time.Duration) {
+	glog.Infof("Controller monitor is running every %d minutes", when)
+	for x := range time.Tick(time.Duration(when * time.Minute)) {
+		glog.Infof("Checking status of existing node fence objects: %s", x)
+		var nodeFences crdv1.NodeFenceList
+		err := c.crdClient.Get().Resource(crdv1.NodeFenceResourcePlural).Do().Into(&nodeFences)
+		if err != nil {
+			glog.Errorf("something went wrong - could not fetch nodefences - %s", err)
+		} else {
+			for _, nf := range nodeFences.Items {
+				glog.Infof("Read %s ..", nf.Metadata.Name)
+				switch nf.Status {
+				case crdv1.NodeFenceConditionNew:
+					// Check if one executor at least is running already
+				case crdv1.NodeFenceConditionError:
+					// Check if current executor failed to run - if so, initiates new executor
+				case crdv1.NodeFenceConditionRunning:
+					glog.Infof("Node fence is already running on: %s", nf.Hostname)
+				case crdv1.NodeFenceConditionDone:
+					// Check if host is up, if not - move to power-management step
+					nf.Status = crdv1.NodeFenceConditionNew
+					nf.Step = crdv1.NodeFenceStepPowerManagement
+					err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+					if err != nil {
+						glog.Errorf("Failed to update nodefence': %s", err)
+						return
+					}
+
+				}
+			}
+		}
+	}
 }
 
 func (c *Controller) onNodeAdd(obj interface{}) {
@@ -160,10 +195,10 @@ func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 					glog.Warningf("PVs on node %s:", nodeName)
 					for _, pv := range c.nodePVMap[nodeName] {
 						glog.Warningf("\t%v:", pv.Name)
-						c.postNodeFencing(newNode, pv)
+						c.createNewNodeFenceObject(newNode, pv)
 					}
 				} else {
-					c.postNodeFencing(newNode, nil)
+					c.createNewNodeFenceObject(newNode, nil)
 				}
 			}
 		}
