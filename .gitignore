@@ -1,3 +1,4 @@
 *~
+tests/config
 standalone-controller/_output/*
 standalone-executor/_output/*

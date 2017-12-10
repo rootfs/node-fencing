@@ -72,8 +72,7 @@ func apcSNMPAgentFunc(params map[string]string, _ *v1.Node) error {
 
 // GetNodeFenceConfig find the nodefenceconfig obj relate to nodeName
 func GetNodeFenceConfig(nodeName string, c kubernetes.Interface) (crdv1.NodeFenceConfig, error) {
-	nodename := nodeName
-	fenceConfigName := "fence-config-" + nodename
+	fenceConfigName := "fence-config-" + nodeName
 	nodeFields := getConfigValues(fenceConfigName, "config.properties", c)
 	if nodeFields == nil {
 		return crdv1.NodeFenceConfig{}, errors.New("failed to read fence config for node")

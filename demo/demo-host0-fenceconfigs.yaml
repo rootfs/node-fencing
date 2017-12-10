@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: List
+items:
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-config-lago-kube-host0
+   namespace: default
+  data:
+   config.properties: |-
+    node_name=lago-kube-host0
+    isolation=ssh
+    power_management=fence-apc-snmp
+    recovery=
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-fc-off-lago-kube-host0
+   namespace: default
+  data:
+   method.properties: |
+          template=fence-method-template-fc-switch-brocade
+          plug=1
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-fc-on-lago-kube-host0
+   namespace: default
+  data:
+   method.properties: |
+          template=fence-method-template-fc-switch-brocade
+          plug=1
+
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-eaton-off-lago-kube-host0
+   namespace: default
+  data:
+   method.properties: |-
+        template=fence-method-template-eaton-pdu
+        plug=1
+        action=off
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-eaton-on-lago-kube-host0
+   namespace: default
+  data:
+   method.properties: |-
+        template=fence-method-template-eaton-pdu
+        plug=1
+        action=on
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-ssh-lago-kube-host0
+   namespace: default
+  data:
+   method.properties: |-
+     agent_name=ssh
+     node_name=lago-kube-host0
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-fence-apc-snmp-lago-kube-host0
+   namespace: default
+  data:
+   method.properties: |-
+     template=fence-template-fence-apc-snmp
+     node_name=lago-kube-host0
+     plug=15
+     action=status
+
