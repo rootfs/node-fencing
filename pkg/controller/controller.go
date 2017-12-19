@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -28,14 +29,20 @@ const (
 	crdPostSteps        = 5
 )
 
+var (
+	// TODO read supported source from node problem detector config
+	supportedNodeProblemSources = sets.NewString("abrt-notification", "abrt-adaptor", "docker-monitor", "kernel-monitor", "kernel")
+)
+
 type Controller struct {
-	crdClient      *rest.RESTClient
-	crdScheme      *runtime.Scheme
-	client         kubernetes.Interface
-	nodePVMap      map[string][]*v1.PersistentVolume
-	nodePVLock     *sync.Mutex
-	nodeController cache.Controller
-	podController  cache.Controller
+	crdClient       *rest.RESTClient
+	crdScheme       *runtime.Scheme
+	client          kubernetes.Interface
+	nodePVMap       map[string][]*v1.PersistentVolume
+	nodePVLock      *sync.Mutex
+	nodeController  cache.Controller
+	podController   cache.Controller
+	eventController cache.Controller
 }
 
 func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTClient, crdScheme *runtime.Scheme) *Controller {
@@ -85,6 +92,23 @@ func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTC
 
 	c.podController = podController
 
+	eventListWatcher := cache.NewListWatchFromClient(
+		client.Core().RESTClient(),
+		"events",
+		v1.NamespaceAll,
+		fields.Everything())
+
+	_, eventController := cache.NewInformer(
+		eventListWatcher,
+		&v1.Event{},
+		time.Minute*60,
+		cache.ResourceEventHandlerFuncs{
+			AddFunc: c.onEventAdd,
+		},
+	)
+
+	c.eventController = eventController
+
 	return c
 }
 
@@ -92,7 +116,7 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 	glog.Infof("Fence controller starting")
 
 	go c.podController.Run(ctx)
-	glog.Infof("Waiting for informer initial sync")
+	glog.Infof("Waiting for pod informer initial sync")
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
 		return c.podController.HasSynced(), nil
 	})
@@ -102,7 +126,7 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 	}
 
 	go c.nodeController.Run(ctx)
-	glog.Infof("Waiting for informer initial sync")
+	glog.Infof("Waiting for node informer initial sync")
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
 		return c.nodeController.HasSynced(), nil
 	})
@@ -110,6 +134,17 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 		glog.Errorf("node informer initial sync timeout")
 		os.Exit(1)
 	}
+
+	go c.eventController.Run(ctx)
+	glog.Infof("Waiting for event informer initial sync")
+	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
+		return c.eventController.HasSynced(), nil
+	})
+	if !c.eventController.HasSynced() {
+		glog.Errorf("event informer initial sync timeout")
+		os.Exit(1)
+	}
+	glog.Infof("start node fencing controller")
 }
 
 func (c *Controller) onNodeAdd(obj interface{}) {
@@ -160,10 +195,10 @@ func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 					glog.Warningf("PVs on node %s:", nodeName)
 					for _, pv := range c.nodePVMap[nodeName] {
 						glog.Warningf("\t%v:", pv.Name)
-						c.postNodeFencing(newNode, pv)
+						c.createNewNodeFenceObject(newNode, pv)
 					}
 				} else {
-					c.postNodeFencing(newNode, nil)
+					c.createNewNodeFenceObject(newNode, nil)
 				}
 			}
 		}
@@ -199,6 +234,21 @@ func (c *Controller) onPodDelete(obj interface{}) {
 	glog.V(4).Infof("delete pod: %s", pod.Name)
 	if c.podHasOwner(pod) {
 		c.updateNodePV(pod, false)
+	}
+}
+
+func (c *Controller) onEventAdd(obj interface{}) {
+	event := obj.(*v1.Event)
+	glog.V(4).Infof("received: %v", event)
+	// only process node problem event
+	// TODO use rule based config to post fence object
+	if problem, host := c.nodeProblemEvent(event); problem {
+		glog.V(3).Infof("process node problem, node %s", host)
+		node, err := c.client.CoreV1().Nodes().Get(host, metav1.GetOptions{})
+		if err != nil {
+			glog.Errorf("Failed to get node: %s", err)
+		}
+		c.createNewNodeFenceObject(node, nil)
 	}
 }
 
@@ -298,4 +348,15 @@ func (c *Controller) createNewNodeFenceObject(node *v1.Node, pv *v1.PersistentVo
 	} else {
 		glog.Infof("posted NodeFence CRD object for node %s", node.Name)
 	}
+}
+
+func (c *Controller) nodeProblemEvent(event *v1.Event) (bool, string) {
+	if event == nil {
+		return false, ""
+	}
+	if event.Type == v1.EventTypeWarning &&
+		supportedNodeProblemSources.Has(string(event.Source.Component)) {
+		return true, event.Source.Host
+	}
+	return false, ""
 }
