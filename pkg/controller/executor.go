@@ -93,6 +93,7 @@ func (c *Executor) startExecution(nf crdv1.NodeFence) {
 	config, err := fencing.GetNodeFenceConfig(nf.NodeName, c.client)
 	if err != nil {
 		glog.Errorf("node fencing failed on node %s", nf.NodeName)
+		return
 	}
 	nf.Status = crdv1.NodeFenceConditionRunning
 	hostname, _ := os.Hostname()
