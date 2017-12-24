@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: List
+items:
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-config-kubernetes-minion-group-8bjz
+   namespace: default
+  data:
+   config.properties: |-
+    node_name=kubernetes-minion-group-8bjz
+    isolation=google-cloud
+    power_management=
+    recovery=
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-google-cloud-kubernetes-minion-group-8bjz
+   namespace: default
+  data:
+   method.properties: |
+          template=fence-template-google-cloud
+          instance_name=kubernetes-minion-group-8bjz
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-config-kubernetes-minion-group-n2dw
+   namespace: default
+  data:
+   config.properties: |-
+    node_name=kubernetes-minion-group-n2dw
+    isolation=google-cloud
+    power_management=
+    recovery=
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-google-cloud-kubernetes-minion-group-n2dw
+   namespace: default
+  data:
+   method.properties: |
+          template=fence-template-google-cloud
+          instance_name=kubernetes-minion-group-n2dw

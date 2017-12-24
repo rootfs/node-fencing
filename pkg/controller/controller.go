@@ -130,6 +130,7 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
 		return c.nodeController.HasSynced(), nil
 	})
+
 	if !c.nodeController.HasSynced() {
 		glog.Errorf("node informer initial sync timeout")
 		os.Exit(1)
@@ -145,27 +146,66 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 		os.Exit(1)
 	}
 	glog.Infof("start node fencing controller")
+	go c.handleExistingNodeFences(2)
+}
+
+func (c *Controller) handleExistingNodeFences(when time.Duration) {
+	glog.Infof("Controller monitor is running every %d minutes", when)
+	for x := range time.Tick(time.Duration(when * time.Minute)) {
+		glog.Infof("Checking status of existing node fence objects: %s", x)
+		var nodeFences crdv1.NodeFenceList
+		err := c.crdClient.Get().Resource(crdv1.NodeFenceResourcePlural).Do().Into(&nodeFences)
+		if err != nil {
+			glog.Errorf("something went wrong - could not fetch nodefences - %s", err)
+		} else {
+			for _, nf := range nodeFences.Items {
+				glog.Infof("Read %s ..", nf.Metadata.Name)
+				switch nf.Status {
+				case crdv1.NodeFenceConditionNew:
+					// Check if one executor at least is running already
+				case crdv1.NodeFenceConditionError:
+					// Check if current executor failed to run - if so, initiates new executor
+				case crdv1.NodeFenceConditionRunning:
+					glog.Infof("Node fence is already running on: %s", nf.Hostname)
+				case crdv1.NodeFenceConditionDone:
+					// Check if host is up, if not - move to power-management step
+					nf.Status = crdv1.NodeFenceConditionNew
+					nf.Step = crdv1.NodeFenceStepPowerManagement
+					err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+					if err != nil {
+						glog.Errorf("Failed to update nodefence': %s", err)
+						return
+					}
+
+				}
+			}
+		}
+	}
 }
 
 func (c *Controller) onNodeAdd(obj interface{}) {
 	node := obj.(*v1.Node)
-	nodeName := node.Name
-	glog.V(4).Infof("add node: %s", nodeName)
+	glog.V(4).Infof("add node: %s", node.Name)
 	status := node.Status
 	conditions := status.Conditions
 
 	for _, condition := range conditions {
-		if v1.NodeReady == condition.Type && v1.ConditionUnknown == condition.Status {
-			glog.Warningf("Node %s ready status is unknown", nodeName)
-			if len(c.nodePVMap[nodeName]) > 0 {
-				glog.Warningf("PVs on node %s:", nodeName)
-				for _, pv := range c.nodePVMap[nodeName] {
-					glog.Warningf("\t%v:", pv.Name)
-					c.createNewNodeFenceObject(node, pv)
-				}
-			} else {
-				c.createNewNodeFenceObject(node, nil)
+		c.checkReadiness(node, condition)
+	}
+}
+
+func (c *Controller) checkReadiness(node *v1.Node, cond v1.NodeCondition) (bool, string) {
+	nodeName := node.Name
+	if v1.NodeReady == cond.Type && v1.ConditionUnknown == cond.Status {
+		glog.Warningf("Node %s ready status is unknown", nodeName)
+		if len(c.nodePVMap[nodeName]) > 0 {
+			glog.Warningf("PVs on node %s:", nodeName)
+			for _, pv := range c.nodePVMap[nodeName] {
+				glog.Warningf("\t%v:", pv.Name)
+				c.createNewNodeFenceObject(node, pv)
 			}
+		} else {
+			c.createNewNodeFenceObject(node, nil)
 		}
 	}
 }
@@ -173,37 +213,20 @@ func (c *Controller) onNodeAdd(obj interface{}) {
 func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 	oldNode := oldObj.(*v1.Node)
 	newNode := newObj.(*v1.Node)
-	nodeName := oldNode.Name
 	glog.V(4).Infof("update node: %s/%s", oldNode.Name, newNode.Name)
-	newStatus := newNode.Status
-	newConditions := newStatus.Conditions
-	oldStatus := oldNode.Status
-	oldConditions := oldStatus.Conditions
 
-	for _, newCondition := range newConditions {
+	for _, newCondition := range newNode.Status.Conditions {
 		found := false
-		for _, oldCondition := range oldConditions {
+		for _, oldCondition := range oldNode.Status.Conditions {
 			if newCondition.LastTransitionTime == oldCondition.LastTransitionTime {
 				found = true
 				break
 			}
 		}
 		if !found {
-			if v1.NodeReady == newCondition.Type && v1.ConditionUnknown == newCondition.Status {
-				glog.Warningf("node %s Ready status is unknown", nodeName)
-				if len(c.nodePVMap[nodeName]) > 0 {
-					glog.Warningf("PVs on node %s:", nodeName)
-					for _, pv := range c.nodePVMap[nodeName] {
-						glog.Warningf("\t%v:", pv.Name)
-						c.createNewNodeFenceObject(newNode, pv)
-					}
-				} else {
-					c.createNewNodeFenceObject(newNode, nil)
-				}
-			}
+			c.checkReadiness(newNode, newCondition)
 		}
 	}
-
 }
 
 func (c *Controller) onNodeDelete(obj interface{}) {

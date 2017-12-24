@@ -58,3 +58,14 @@ items:
           snmp-priv-passwd=eaton_snmp_passwd
           snmp-sec-level=authPriv
           inet4-only=true
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-template-google-cloud
+   namespace: default
+  data:
+   template.properties: |-
+          agent_name=google-cloud
+          zone=us-east1-b
+          project=kube-cluster-fence-poc

@@ -29,11 +29,30 @@ func init() {
 		Desc:     "Fence agent for APC, Tripplite PDU over SNMP",
 		Function: apcSNMPAgentFunc,
 	}
+	agents["google-cloud"] = crdv1.Agent{
+		Name:     "google-cloud",
+		Desc:     "Reboot instance in GCE cluster",
+		Function: gceAgentFunc,
+	}
+}
+
+func gceAgentFunc(params map[string]string, node *v1.Node) error {
+	cmd := exec.Command("/usr/bin/python",
+		"fence-scripts/k8s_instance_rest_fence.sh",
+		node.Name)
+	WaitTimeout(cmd, 1000)
+	output, err := cmd.CombinedOutput()
+	glog.Infof("fencing output: %s", string(output))
+	if err != nil {
+		glog.Infof("Fencing address: %s failed", params["address"])
+		return err
+	}
+	return nil
 }
 
 func sshFenceAgentFunc(params map[string]string, node *v1.Node) error {
 	add := node.Status.Addresses[0].Address
-	cmd := exec.Command("/bin/sh", "/usr/bin/k8s_node_fencing.sh", add)
+	cmd := exec.Command("/bin/sh", "fence-scripts/k8s_ssh_fence.sh", add)
 	WaitTimeout(cmd, 1000)
 	output, err := cmd.CombinedOutput()
 	glog.Infof("fencing output: %s", string(output))

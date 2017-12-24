@@ -93,6 +93,7 @@ func (c *Executor) startExecution(nf crdv1.NodeFence) {
 	config, err := fencing.GetNodeFenceConfig(nf.NodeName, c.client)
 	if err != nil {
 		glog.Errorf("node fencing failed on node %s", nf.NodeName)
+		return
 	}
 	nf.Status = crdv1.NodeFenceConditionRunning
 	hostname, _ := os.Hostname()
@@ -120,9 +121,9 @@ func (c *Executor) onNodeFencingAdd(obj interface{}) {
 	c.startExecution(*fence)
 }
 
-func (c *Executor) onNodeFencingUpdate(oldObj, _ interface{}) {
-	oldfence := oldObj.(*crdv1.NodeFence)
-	glog.Infof("node fence object updated %s", oldfence.Metadata.Name)
+func (c *Executor) onNodeFencingUpdate(_, newObj interface{}) {
+	fence := newObj.(*crdv1.NodeFence)
+	c.startExecution(*fence)
 }
 
 func (c *Executor) onNodeFencingDelete(obj interface{}) {
