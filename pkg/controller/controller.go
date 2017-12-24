@@ -185,23 +185,27 @@ func (c *Controller) handleExistingNodeFences(when time.Duration) {
 
 func (c *Controller) onNodeAdd(obj interface{}) {
 	node := obj.(*v1.Node)
-	nodeName := node.Name
-	glog.V(4).Infof("add node: %s", nodeName)
+	glog.V(4).Infof("add node: %s", node.Name)
 	status := node.Status
 	conditions := status.Conditions
 
 	for _, condition := range conditions {
-		if v1.NodeReady == condition.Type && v1.ConditionUnknown == condition.Status {
-			glog.Warningf("Node %s ready status is unknown", nodeName)
-			if len(c.nodePVMap[nodeName]) > 0 {
-				glog.Warningf("PVs on node %s:", nodeName)
-				for _, pv := range c.nodePVMap[nodeName] {
-					glog.Warningf("\t%v:", pv.Name)
-					c.createNewNodeFenceObject(node, pv)
-				}
-			} else {
-				c.createNewNodeFenceObject(node, nil)
+		c.checkReadiness(node, condition)
+	}
+}
+
+func (c *Controller) checkReadiness(node *v1.Node, cond v1.NodeCondition) (bool, string) {
+	nodeName := node.Name
+	if v1.NodeReady == cond.Type && v1.ConditionUnknown == cond.Status {
+		glog.Warningf("Node %s ready status is unknown", nodeName)
+		if len(c.nodePVMap[nodeName]) > 0 {
+			glog.Warningf("PVs on node %s:", nodeName)
+			for _, pv := range c.nodePVMap[nodeName] {
+				glog.Warningf("\t%v:", pv.Name)
+				c.createNewNodeFenceObject(node, pv)
 			}
+		} else {
+			c.createNewNodeFenceObject(node, nil)
 		}
 	}
 }
@@ -209,37 +213,20 @@ func (c *Controller) onNodeAdd(obj interface{}) {
 func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 	oldNode := oldObj.(*v1.Node)
 	newNode := newObj.(*v1.Node)
-	nodeName := oldNode.Name
 	glog.V(4).Infof("update node: %s/%s", oldNode.Name, newNode.Name)
-	newStatus := newNode.Status
-	newConditions := newStatus.Conditions
-	oldStatus := oldNode.Status
-	oldConditions := oldStatus.Conditions
 
-	for _, newCondition := range newConditions {
+	for _, newCondition := range newNode.Status.Conditions {
 		found := false
-		for _, oldCondition := range oldConditions {
+		for _, oldCondition := range oldNode.Status.Conditions {
 			if newCondition.LastTransitionTime == oldCondition.LastTransitionTime {
 				found = true
 				break
 			}
 		}
 		if !found {
-			if v1.NodeReady == newCondition.Type && v1.ConditionUnknown == newCondition.Status {
-				glog.Warningf("node %s Ready status is unknown", nodeName)
-				if len(c.nodePVMap[nodeName]) > 0 {
-					glog.Warningf("PVs on node %s:", nodeName)
-					for _, pv := range c.nodePVMap[nodeName] {
-						glog.Warningf("\t%v:", pv.Name)
-						c.createNewNodeFenceObject(newNode, pv)
-					}
-				} else {
-					c.createNewNodeFenceObject(newNode, nil)
-				}
-			}
+			c.checkReadiness(newNode, newCondition)
 		}
 	}
-
 }
 
 func (c *Controller) onNodeDelete(obj interface{}) {
