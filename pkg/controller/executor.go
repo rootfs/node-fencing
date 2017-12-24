@@ -32,14 +32,14 @@ func NewNodeFenceExecutorController(client kubernetes.Interface, crdClient *rest
 	}
 
 	// Watch NodeFence objects
-	source := cache.NewListWatchFromClient(
+	eventListWatcher := cache.NewListWatchFromClient(
 		c.crdClient,
 		crdv1.NodeFenceResourcePlural,
 		apiv1.NamespaceAll,
 		fields.Everything())
 
 	_, nodeFenceController := cache.NewInformer(
-		source,
+		eventListWatcher,
 		&crdv1.NodeFence{},
 		time.Minute*60,
 		cache.ResourceEventHandlerFuncs{
@@ -65,12 +65,12 @@ func (c *Executor) Run(ctx <-chan struct{}) {
 		glog.Errorf("node fence informer controller initial sync timeout")
 		os.Exit(1)
 	}
-	glog.Infof("Watching node fence objects")
 	c.handleExistingNodeFences()
 }
 
 func (c *Executor) handleExistingNodeFences() {
 	var nodeFences crdv1.NodeFenceList
+	glog.Infof("Handling existing node fences ... ")
 	err := c.crdClient.Get().Resource(crdv1.NodeFenceResourcePlural).Do().Into(&nodeFences)
 	if err != nil {
 		glog.Errorf("something went wrong - could not fetch nodefences - %s", err)
@@ -79,11 +79,13 @@ func (c *Executor) handleExistingNodeFences() {
 			glog.Infof("Read %s ..", nf.Metadata.Name)
 			switch nf.Status {
 			case crdv1.NodeFenceConditionNew:
+				glog.Infof("nodefence in NEW state")
 				c.startExecution(nf)
 			case crdv1.NodeFenceConditionError:
+				glog.Infof("nodefence in ERROR state")
 				// Check if current host failed to run - if so, let controller initiate new executor
 			case crdv1.NodeFenceConditionRunning:
-				glog.Infof("Node fence is already running on: %s", nf.Hostname)
+				glog.Infof("Node fence is already Running on: %s", nf.Hostname)
 			}
 		}
 	}
@@ -105,6 +107,7 @@ func (c *Executor) startExecution(nf crdv1.NodeFence) {
 	}
 	err = fencing.ExecuteFenceAgents(config, nf.Step, c.client)
 	if err != nil {
+		glog.Errorf("Failed to execute fence - moving to ERROR:", err)
 		nf.Status = crdv1.NodeFenceConditionError
 	} else {
 		nf.Status = crdv1.NodeFenceConditionDone
@@ -118,15 +121,18 @@ func (c *Executor) startExecution(nf crdv1.NodeFence) {
 
 func (c *Executor) onNodeFencingAdd(obj interface{}) {
 	fence := obj.(*crdv1.NodeFence)
+	glog.Infof("New fence object %s", fence.Metadata.Name)
 	c.startExecution(*fence)
 }
 
-func (c *Executor) onNodeFencingUpdate(_, newObj interface{}) {
-	fence := newObj.(*crdv1.NodeFence)
-	c.startExecution(*fence)
+func (c *Executor) onNodeFencingUpdate(oldObj, newObj interface{}) {
+	oldFence := oldObj.(*crdv1.NodeFence)
+	newFence := newObj.(*crdv1.NodeFence)
+	if oldFence.Step != newFence.Step {
+		c.startExecution(*newFence)
+	}
 }
 
-func (c *Executor) onNodeFencingDelete(obj interface{}) {
-	fence := obj.(*crdv1.NodeFence)
-	glog.Infof("node fence object removed %s", fence.Metadata.Name)
+func (c *Executor) onNodeFencingDelete(_ interface{}) {
+	// currently no logic on delete
 }

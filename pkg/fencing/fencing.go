@@ -29,38 +29,56 @@ func init() {
 		Desc:     "Fence agent for APC, Tripplite PDU over SNMP",
 		Function: apcSNMPAgentFunc,
 	}
-	agents["google-cloud"] = crdv1.Agent{
+	agents["gcloud-reset-inst"] = crdv1.Agent{
 		Name:     "google-cloud",
 		Desc:     "Reboot instance in GCE cluster",
 		Function: gceAgentFunc,
 	}
+
+	agents["cordon"] = crdv1.Agent{
+		Name:     "cordon",
+		Desc:     "Stop scheduler from using resources on node",
+		Function: cordonFunc,
+	}
+	agents["uncordon"] = crdv1.Agent{
+		Name:     "uncordon",
+		Desc:     "Remove cordon from node",
+		Function: uncordonFunc,
+	}
+}
+
+func cordonFunc(params map[string]string, node *v1.Node) error {
+	cmd := exec.Command("/bin/sh",
+		"fence-scripts/k8s_cordon_node.sh",
+		node.Name)
+	return waitExec(cmd)
+}
+
+func uncordonFunc(params map[string]string, node *v1.Node) error {
+	cmd := exec.Command("/bin/sh",
+		"fence-scripts/k8s_uncordon_node.sh",
+		node.Name)
+	return waitExec(cmd)
 }
 
 func gceAgentFunc(params map[string]string, node *v1.Node) error {
 	cmd := exec.Command("/usr/bin/python",
-		"fence-scripts/k8s_instance_rest_fence.sh",
+		"fence-scripts/k8s_gce_reboot_instance.py",
 		node.Name)
-	WaitTimeout(cmd, 1000)
+	return waitExec(cmd)
+}
+
+func waitExec(cmd *exec.Cmd) error {
+	WaitTimeout(cmd, 3000)
 	output, err := cmd.CombinedOutput()
-	glog.Infof("fencing output: %s", string(output))
-	if err != nil {
-		glog.Infof("Fencing address: %s failed", params["address"])
-		return err
-	}
-	return nil
+	glog.Infof("Agent output: %s", string(output))
+	return err
 }
 
 func sshFenceAgentFunc(params map[string]string, node *v1.Node) error {
 	add := node.Status.Addresses[0].Address
 	cmd := exec.Command("/bin/sh", "fence-scripts/k8s_ssh_fence.sh", add)
-	WaitTimeout(cmd, 1000)
-	output, err := cmd.CombinedOutput()
-	glog.Infof("fencing output: %s", string(output))
-	if err != nil {
-		glog.Infof("Fencing address: %s failed", add)
-		return err
-	}
-	return nil
+	return waitExec(cmd)
 }
 
 func apcSNMPAgentFunc(params map[string]string, _ *v1.Node) error {
@@ -79,14 +97,7 @@ func apcSNMPAgentFunc(params map[string]string, _ *v1.Node) error {
 		plug,
 		action,
 	)
-	WaitTimeout(cmd, 1000)
-	output, err := cmd.CombinedOutput()
-	glog.Infof("fencing output: %s", string(output))
-	if err != nil {
-		glog.Infof("Fencing address: %s failed", params["address"])
-		return err
-	}
-	return nil
+	return waitExec(cmd)
 }
 
 // GetNodeFenceConfig find the nodefenceconfig obj relate to nodeName
@@ -100,14 +111,14 @@ func GetNodeFenceConfig(nodeName string, c kubernetes.Interface) (crdv1.NodeFenc
 		NodeName:        nodeName,
 		Isolation:       strings.Split(nodeFields["isolation"], " "),
 		PowerManagement: strings.Split(nodeFields["power_management"], " "),
-		Recovery:        strings.Split(nodeFields["Recovery"], " "),
+		Recovery:        strings.Split(nodeFields["recovery"], " "),
 	}
 	return config, nil
 }
 
 // ExecuteFenceAgents gets fenceconfig and step, parse it, and calls executeFence
 func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepType, c kubernetes.Interface) error {
-	glog.Infof("Start fence execution for node: %s", config.NodeName)
+	glog.Infof("Running fence execution for node %s, step %s", config.NodeName, step)
 	methods := []string{}
 
 	switch step {
@@ -116,15 +127,19 @@ func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepTy
 	case crdv1.NodeFenceStepPowerManagement:
 		methods = config.PowerManagement
 	case crdv1.NodeFenceStepRecovery:
-		methods = config.PowerManagement
+		methods = config.Recovery
 	default:
 		glog.Errorf("step is invalid %s", step)
 		return errors.New("invalid step parameter")
 	}
 
 	for _, method := range methods {
+		if method == "" {
+			glog.Infof("Nothing to execute in step %s", step)
+			return nil
+		}
 		params := getMethodParams(config.NodeName, method, c)
-		// find template if exists and add its params also
+		// find template if exists and add its fields
 		if temp, exists := params["template"]; exists {
 			tempParams := getConfigValues(temp, "template.properties", c)
 			for k, v := range tempParams {
@@ -132,18 +147,12 @@ func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepTy
 			}
 		}
 		glog.Infof("Executing method: %s", method)
-
-		// need to fetch the address somehow :|
 		node, err := c.CoreV1().Nodes().Get(config.NodeName, metav1.GetOptions{})
 		if err != nil {
 			glog.Errorf("Failed to get node: %s", err)
 			return err
 		}
-		err = executeFence(params, node)
-		if err != nil {
-			glog.Errorf("Failed: %s", err)
-			return err
-		}
+		return executeFence(params, node)
 	}
 	glog.Infof("Finish execution for node: %s", config.NodeName)
 	return nil
@@ -155,16 +164,10 @@ func executeFence(params map[string]string, node *v1.Node) error {
 			if exists != true {
 				return errors.New("failed to find agent")
 			}
-			err := agent.Function(params, node)
-			if err != nil {
-				glog.Errorf("fencing node failed: %s", err)
-				return err
-			}
-			// success
-			return nil
+			return agent.Function(params, node)
 		}
 	}
-	return errors.New("agent_name field does not exist in method config")
+	return errors.New("configured agent_name does not exist.")
 }
 
 func getMethodParams(nodeName string, methodName string, c kubernetes.Interface) map[string]string {

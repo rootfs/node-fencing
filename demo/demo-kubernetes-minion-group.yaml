@@ -5,43 +5,50 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-config-kubernetes-minion-group-8bjz
+   name: fence-cluster-config
    namespace: default
   data:
    config.properties: |-
-    node_name=kubernetes-minion-group-8bjz
-    isolation=google-cloud
-    power_management=
-    recovery=
+    grace_timeout=10
+    giveup_retries=5
 
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-google-cloud-kubernetes-minion-group-8bjz
-   namespace: default
-  data:
-   method.properties: |
-          template=fence-template-google-cloud
-          instance_name=kubernetes-minion-group-8bjz
-
-- kind: ConfigMap
-  apiVersion: v1
-  metadata:
-   name: fence-config-kubernetes-minion-group-n2dw
+   name: fence-config-kubernetes-minion-group-9ssp
    namespace: default
   data:
    config.properties: |-
-    node_name=kubernetes-minion-group-n2dw
-    isolation=google-cloud
-    power_management=
-    recovery=
+    node_name=kubernetes-minion-group-9ssp
+    isolation=cordon
+    power_management=gcloud-reset-inst
+    recovery=uncordon
 
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-google-cloud-kubernetes-minion-group-n2dw
+   name: fence-method-gcloud-reset-inst-kubernetes-minion-group-9ssp
    namespace: default
   data:
    method.properties: |
-          template=fence-template-google-cloud
-          instance_name=kubernetes-minion-group-n2dw
+          agent_name=gcloud-reset-inst
+          zone=us-east1-b
+          project=kube-cluster-fence-poc
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-cordon-kubernetes-minion-group-9ssp
+   namespace: default
+  data:
+   method.properties: |
+          agent_name=cordon
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-uncordon-kubernetes-minion-group-9ssp
+   namespace: default
+  data:
+   method.properties: |
+          agent_name=uncordon

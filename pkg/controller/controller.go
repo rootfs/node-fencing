@@ -38,6 +38,7 @@ type Controller struct {
 	crdClient       *rest.RESTClient
 	crdScheme       *runtime.Scheme
 	client          kubernetes.Interface
+
 	nodePVMap       map[string][]*v1.PersistentVolume
 	nodePVLock      *sync.Mutex
 	nodeController  cache.Controller
@@ -145,14 +146,15 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 		glog.Errorf("event informer initial sync timeout")
 		os.Exit(1)
 	}
-	glog.Infof("start node fencing controller")
-	go c.handleExistingNodeFences(2)
+	// read fence-cluster-config
+	go c.handleExistingNodeFences(10)
 }
 
-func (c *Controller) handleExistingNodeFences(when time.Duration) {
-	glog.Infof("Controller monitor is running every %d minutes", when)
-	for x := range time.Tick(time.Duration(when * time.Minute)) {
-		glog.Infof("Checking status of existing node fence objects: %s", x)
+// handleExistingNodeFences go over nodefence objs every elapsedPeriod seconds and
+// modify the nodefence object based on its state
+func (c *Controller) handleExistingNodeFences(elapsedPeriod time.Duration) {
+	glog.Infof("Controller monitor is running every %d seconds", elapsedPeriod)
+	for range time.Tick(time.Duration(elapsedPeriod * time.Second)) {
 		var nodeFences crdv1.NodeFenceList
 		err := c.crdClient.Get().Resource(crdv1.NodeFenceResourcePlural).Do().Into(&nodeFences)
 		if err != nil {
@@ -162,21 +164,59 @@ func (c *Controller) handleExistingNodeFences(when time.Duration) {
 				glog.Infof("Read %s ..", nf.Metadata.Name)
 				switch nf.Status {
 				case crdv1.NodeFenceConditionNew:
-					// Check if one executor at least is running already
+					// TODO: Check if one executor at least is running already
 				case crdv1.NodeFenceConditionError:
-					// Check if current executor failed to run - if so, initiates new executor
+					// TODO: Check if current executor failed to run - if so, initiates new executor
 				case crdv1.NodeFenceConditionRunning:
 					glog.Infof("Node fence is already running on: %s", nf.Hostname)
 				case crdv1.NodeFenceConditionDone:
-					// Check if host is up, if not - move to power-management step
-					nf.Status = crdv1.NodeFenceConditionNew
-					nf.Step = crdv1.NodeFenceStepPowerManagement
-					err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+					if nf.Step == crdv1.NodeFenceStepRecovery { // recovery completed
+						glog.Infof("Fence for node %s completed successfully", nf.NodeName)
+						err = c.crdClient.Delete().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Do().Into(&nf)
+						if err != nil {
+							glog.Errorf("Failed to delete nodefence': %s", err)
+							return
+						}
+						continue
+					}
+					// Check if node is still in unknown state
+					var node *v1.Node
+					var backToReady = true
+					node, err := c.client.CoreV1().Nodes().Get(nf.NodeName, metav1.GetOptions{})
 					if err != nil {
-						glog.Errorf("Failed to update nodefence': %s", err)
+						glog.Errorf("Failed reading node obj: ", nf.NodeName)
 						return
 					}
-
+					for _, condition := range node.Status.Conditions {
+						if !c.checkReadiness(node, condition) {
+							backToReady = false
+						}
+					}
+					if backToReady {
+						glog.Infof("Node %s is back to ready state. Moving to Recovery stage", nf.NodeName)
+						nf.Status = crdv1.NodeFenceConditionNew
+						nf.Step = crdv1.NodeFenceStepRecovery
+						err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+						if err != nil {
+							glog.Errorf("Failed to update nodefence': %s", err)
+							return
+						}
+					} else {
+						switch nf.Step {
+						case crdv1.NodeFenceStepIsolation:
+							glog.Infof("Isolation is done - moving to Power-Management step for node %s", nf.NodeName)
+							nf.Status = crdv1.NodeFenceConditionNew
+							nf.Step = crdv1.NodeFenceStepPowerManagement
+							err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+							if err != nil {
+								glog.Errorf("Failed to update nodefence': %s", err)
+								return
+							}
+						case crdv1.NodeFenceStepPowerManagement:
+							// TODO: treat if doesn't come back for grace period
+							glog.Infof("Node %s after PM operations - waiting for status change", nf.NodeName)
+						}
+					}
 				}
 			}
 		}
@@ -186,15 +226,16 @@ func (c *Controller) handleExistingNodeFences(when time.Duration) {
 func (c *Controller) onNodeAdd(obj interface{}) {
 	node := obj.(*v1.Node)
 	glog.V(4).Infof("add node: %s", node.Name)
-	status := node.Status
-	conditions := status.Conditions
 
-	for _, condition := range conditions {
-		c.checkReadiness(node, condition)
+	for _, condition := range node.Status.Conditions {
+		if !c.checkReadiness(node, condition) {
+			c.createNewNodeFenceObject(node, nil)
+		}
 	}
 }
 
-func (c *Controller) checkReadiness(node *v1.Node, cond v1.NodeCondition) (bool, string) {
+func (c *Controller) checkReadiness(node *v1.Node, cond v1.NodeCondition) bool {
+	readiness := true
 	nodeName := node.Name
 	if v1.NodeReady == cond.Type && v1.ConditionUnknown == cond.Status {
 		glog.Warningf("Node %s ready status is unknown", nodeName)
@@ -202,12 +243,13 @@ func (c *Controller) checkReadiness(node *v1.Node, cond v1.NodeCondition) (bool,
 			glog.Warningf("PVs on node %s:", nodeName)
 			for _, pv := range c.nodePVMap[nodeName] {
 				glog.Warningf("\t%v:", pv.Name)
-				c.createNewNodeFenceObject(node, pv)
+				readiness = false
 			}
 		} else {
-			c.createNewNodeFenceObject(node, nil)
+			readiness = false
 		}
 	}
+	return readiness
 }
 
 func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
@@ -224,7 +266,9 @@ func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 			}
 		}
 		if !found {
-			c.checkReadiness(newNode, newCondition)
+			if !c.checkReadiness(newNode, newCondition) {
+				c.createNewNodeFenceObject(newNode, nil)
+			}
 		}
 	}
 }
@@ -369,7 +413,7 @@ func (c *Controller) createNewNodeFenceObject(node *v1.Node, pv *v1.PersistentVo
 	if err != nil {
 		glog.Warningf("failed to post NodeFence CRD object: %v", err)
 	} else {
-		glog.Infof("posted NodeFence CRD object for node %s", node.Name)
+		glog.Infof("Posted NodeFence CRD object for node %s - starting Isolation", node.Name)
 	}
 }
 
