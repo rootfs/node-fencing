@@ -1,3 +1,5 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/rootfs/node-fencing)](https://goreportcard.com/report/github.com/rootfs/node-fencing)
+
 # Kubernetes Node Fence controller and executor
 
 # Status
