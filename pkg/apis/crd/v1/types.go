@@ -182,17 +182,6 @@ const (
 	Select
 )
 
-type Agent struct {
-	// Agent Name
-	Name string
-
-	// Description
-	Desc string
-
-	// command to execute
-	Function func(params map[string]string, node *core_v1.Node) error
-}
-
 type Parameter struct {
 	// Parameter Name
 	Name string
