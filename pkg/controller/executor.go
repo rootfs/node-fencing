@@ -24,6 +24,8 @@ type Executor struct {
 	nodeFenceController cache.Controller
 }
 
+// NewNodeFenceExecutorController initializing executor controller with nodeFenceController that listens on nodefence
+// CRD changes
 func NewNodeFenceExecutorController(client kubernetes.Interface, crdClient *rest.RESTClient, crdScheme *runtime.Scheme) *Executor {
 	c := &Executor{
 		client:    client,
@@ -45,7 +47,6 @@ func NewNodeFenceExecutorController(client kubernetes.Interface, crdClient *rest
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    c.onNodeFencingAdd,
 			UpdateFunc: c.onNodeFencingUpdate,
-			DeleteFunc: c.onNodeFencingDelete,
 		},
 	)
 
@@ -54,6 +55,7 @@ func NewNodeFenceExecutorController(client kubernetes.Interface, crdClient *rest
 	return c
 }
 
+// Run starts watcher and handling existing nodefence obj on start - to avoid waiting for updates
 func (c *Executor) Run(ctx <-chan struct{}) {
 	glog.Infof("Node fence executor starting")
 	go c.nodeFenceController.Run(ctx)
@@ -68,6 +70,7 @@ func (c *Executor) Run(ctx <-chan struct{}) {
 	c.handleExistingNodeFences()
 }
 
+// handleExistingNodeFences goes over all nodefences object and check if should start execution
 func (c *Executor) handleExistingNodeFences() {
 	var nodeFences crdv1.NodeFenceList
 	glog.Infof("Handling existing node fences ... ")
@@ -82,8 +85,12 @@ func (c *Executor) handleExistingNodeFences() {
 				glog.Infof("nodefence in NEW state")
 				c.startExecution(nf)
 			case crdv1.NodeFenceConditionError:
-				glog.Infof("nodefence in ERROR state")
-				// Check if current host failed to run - if so, let controller initiate new executor
+				// If this host already tried to handle nodefence object report an error and let
+				// controller handle it
+				hostname, _ := os.Hostname()
+				if nf.Hostname == hostname {
+					glog.Infof("handleExistingNodeFences::nodefence in ERROR state")
+				}
 			case crdv1.NodeFenceConditionRunning:
 				glog.Infof("Node fence is already Running on: %s", nf.Hostname)
 			}
@@ -91,6 +98,8 @@ func (c *Executor) handleExistingNodeFences() {
 	}
 }
 
+// startExecution gets nodefence obj, retrieve required fields to run ExecuteFenceAgents and updates
+// the nodefence obj based on the return value
 func (c *Executor) startExecution(nf crdv1.NodeFence) {
 	config, err := fencing.GetNodeFenceConfig(nf.NodeName, c.client)
 	if err != nil {
@@ -131,8 +140,4 @@ func (c *Executor) onNodeFencingUpdate(oldObj, newObj interface{}) {
 	if oldFence.Step != newFence.Step {
 		c.startExecution(*newFence)
 	}
-}
-
-func (c *Executor) onNodeFencingDelete(_ interface{}) {
-	// currently no logic on delete
 }
