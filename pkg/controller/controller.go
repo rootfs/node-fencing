@@ -3,9 +3,9 @@ package controller
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
-	"strings"
 
 	"github.com/golang/glog"
 
@@ -16,12 +16,12 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 
+	"github.com/rootfs/node-fencing/pkg/fencing"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"github.com/rootfs/node-fencing/pkg/fencing"
 	"strconv"
 )
 
@@ -30,9 +30,9 @@ const (
 	crdPostFactor       = 1.2
 	crdPostSteps        = 5
 	// following defaults are used if fence-cluster-config configmap does not exists
-	gracePeriodDefault  = 5
-	giveupRetries       = 5
-	clusterPolicies		= ""
+	gracePeriodDefault = 5
+	giveupRetries      = 5
+	clusterPolicies    = ""
 )
 
 var (
@@ -41,9 +41,9 @@ var (
 )
 
 type Controller struct {
-	crdClient       *rest.RESTClient
-	crdScheme       *runtime.Scheme
-	client          kubernetes.Interface
+	crdClient *rest.RESTClient
+	crdScheme *runtime.Scheme
+	client    kubernetes.Interface
 
 	nodePVMap       map[string][]*v1.PersistentVolume
 	nodePVLock      *sync.Mutex

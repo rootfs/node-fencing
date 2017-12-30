@@ -1,14 +1,14 @@
 package fencing
 
 import (
-	"github.com/golang/glog"
-	"time"
-	"strings"
 	"errors"
+	"github.com/golang/glog"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"syscall"
-	"os/exec"
 	"k8s.io/client-go/kubernetes"
+	"os/exec"
+	"strings"
+	"syscall"
+	"time"
 )
 
 // GetConfigValues returns map with the configName and configType parameters

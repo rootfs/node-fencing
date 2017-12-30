@@ -3,12 +3,12 @@ package fencing
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"github.com/golang/glog"
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"strings"
 )
 
 // GetNodeFenceConfig find the configmap obj relate to nodeName.
@@ -93,4 +93,3 @@ func getMethodParams(nodeName string, methodName string, c kubernetes.Interface)
 	methodFullName := "fence-method-" + methodName + "-" + nodeName
 	return GetConfigValues(methodFullName, "method.properties", c)
 }
-

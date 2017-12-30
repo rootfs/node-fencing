@@ -1,15 +1,15 @@
 package fencing
 
 import (
-	"github.com/golang/glog"
 	"fmt"
-	"os/exec"
+	"github.com/golang/glog"
 	apiv1 "k8s.io/api/core/v1"
+	"os/exec"
 )
 
 type Agent struct {
-	Name string
-	Desc string
+	Name     string
+	Desc     string
 	Function func(params map[string]string, node *apiv1.Node) error
 }
 
