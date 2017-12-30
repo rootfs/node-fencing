@@ -35,6 +35,12 @@ var agents = make(map[string]Agent)
 func init() {
 	// Register agents
 	// For each agent_name we define description and function pointer for the execution logic
+
+	// TODO: make dynamic load from folder /usr/libexec/fence-agents
+	// filename will be the key, and function only executes the scripts with parameters from the the configmaps
+
+	// For now - we explicitly define Agent structure for each script under fence-scripts folder
+
 	agents["ssh"] = Agent{
 		Name:     "ssh",
 		Desc:     "Agent login to host via ssh and restart kubelet - requires copy-id first to allow root login",
@@ -54,26 +60,22 @@ func init() {
 	agents["cordon"] = Agent{
 		Name:     "cordon",
 		Desc:     "Stop scheduler from using resources on node",
-		Function: cordonFunc,
+		Function: runShellScriptWithNodeName,
 	}
 	agents["uncordon"] = Agent{
 		Name:     "uncordon",
 		Desc:     "Remove cordon from node",
-		Function: uncordonFunc,
+		Function: runShellScriptWithNodeName,
+	}
+	agents["clean-pods"] = Agent{
+		Name:     "clean-pods",
+		Desc:     "Delete all pod objects that runs on node_name",
+		Function: runShellScriptWithNodeName,
 	}
 }
 
-func cordonFunc(params map[string]string, node *apiv1.Node) error {
-	cmd := exec.Command("/bin/sh",
-		"fence-scripts/k8s_cordon_node.sh",
-		node.Name)
-	return waitExec(cmd)
-}
-
-func uncordonFunc(params map[string]string, node *apiv1.Node) error {
-	cmd := exec.Command("/bin/sh",
-		"fence-scripts/k8s_uncordon_node.sh",
-		node.Name)
+func runShellScriptWithNodeName(params map[string]string, node *apiv1.Node) error {
+	cmd := exec.Command("/bin/sh", params["script_path"], node.Name)
 	return waitExec(cmd)
 }
 

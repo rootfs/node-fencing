@@ -66,9 +66,12 @@ func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepTy
 			glog.Errorf("ExecuteFenceAgents::Failed to get node: %s", err)
 			return err
 		}
-		return executeFence(params, node)
+		err = executeFence(params, node)
+		if err != nil {
+			return err
+		}
 	}
-	glog.Infof("ExecuteFenceAgents::Finish execution for node: %s", config.NodeName)
+	glog.Infof("ExecuteFenceAgents::Finish execution for node: %s, step: %s", config.NodeName, step)
 	return nil
 }
 
