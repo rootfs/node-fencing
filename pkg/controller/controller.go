@@ -250,7 +250,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 	var backToReady = true
 	node, err := c.client.CoreV1().Nodes().Get(nf.NodeName, metav1.GetOptions{})
 	if err != nil {
-		glog.Errorf("Failed reading node obj: ", nf.NodeName)
+		glog.Errorf("Failed reading node obj: %s", nf.NodeName)
 		return
 	}
 	for _, condition := range node.Status.Conditions {

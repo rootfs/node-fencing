@@ -116,7 +116,7 @@ func (c *Executor) startExecution(nf crdv1.NodeFence) {
 	}
 	err = fencing.ExecuteFenceAgents(config, nf.Step, c.client)
 	if err != nil {
-		glog.Errorf("Failed to execute fence - moving to ERROR:", err)
+		glog.Errorf("Failed to execute fence - moving to ERROR: %s", err)
 		nf.Status = crdv1.NodeFenceConditionError
 	} else {
 		nf.Status = crdv1.NodeFenceConditionDone
