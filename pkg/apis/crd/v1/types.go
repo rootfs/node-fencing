@@ -70,6 +70,7 @@ type NodeFenceCondition struct {
 	Message string `json:"message"`
 }
 
+// NodeFenceStepType type for nodefence steps
 type NodeFenceStepType string
 
 const (
@@ -182,6 +183,7 @@ const (
 	Select
 )
 
+// Parameter describes parameter object
 type Parameter struct {
 	// Parameter Name
 	Name string
@@ -208,6 +210,7 @@ type Parameter struct {
 	Options []interface{}
 }
 
+// Action index type for ActionMap
 type Action uint8
 
 // Available actions

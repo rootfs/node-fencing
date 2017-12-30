@@ -7,6 +7,7 @@ import (
 	"os/exec"
 )
 
+// Agent defined the name, description and function for specific fence function
 type Agent struct {
 	Name     string
 	Desc     string

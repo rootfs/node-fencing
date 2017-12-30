@@ -80,7 +80,7 @@ func executeFence(params map[string]string, node *v1.Node) error {
 	if agentName, exists := params["agent_name"]; exists {
 		if agent, exists := agents[agentName]; exists {
 			if exists != true {
-				return errors.New(fmt.Sprintf("executeFence::failed to find agent_name %s", agentName))
+				return fmt.Errorf("executeFence::failed to find agent_name %s", agentName)
 			}
 			return agent.Function(params, node)
 		}

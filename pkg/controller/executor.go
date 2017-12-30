@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+// Executor object implements watcher functionality for nodefence objects
 type Executor struct {
 	crdClient           *rest.RESTClient
 	crdScheme           *runtime.Scheme

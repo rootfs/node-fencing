@@ -40,6 +40,7 @@ var (
 	supportedNodeProblemSources = sets.NewString("abrt-notification", "abrt-adaptor", "docker-monitor", "kernel-monitor", "kernel")
 )
 
+// Controller object implements watcher functionality for pods, nodes and events objects
 type Controller struct {
 	crdClient *rest.RESTClient
 	crdScheme *runtime.Scheme
@@ -52,6 +53,7 @@ type Controller struct {
 	eventController cache.Controller
 }
 
+// NewNodeFencingController initializing controller
 func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTClient, crdScheme *runtime.Scheme) *Controller {
 	c := &Controller{
 		client:     client,
@@ -119,6 +121,7 @@ func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTC
 	return c
 }
 
+// Run starts watchers, start main loop and read cluster config
 func (c *Controller) Run(ctx <-chan struct{}) {
 	glog.Infof("Fence controller starting")
 
