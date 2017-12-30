@@ -32,10 +32,10 @@ const (
 type NodeFenceStatus struct {
 	// The time the fencing was successfully created
 	// +optional
-	CreationTimestamp metav1.Time `json:"creationTimestamp" protobuf:"bytes,1,opt,name=creationTimestamp"`
+	CreationTimestamp metav1.Time `json:"creationTimestamp"`
 
 	// Represent the latest available observations
-	Conditions []NodeFenceCondition `json:"conditions" protobuf:"bytes,2,rep,name=conditions"`
+	Conditions []NodeFenceCondition `json:"conditions"`
 }
 
 // NodeFenceConditionType is the type of NodeFence conditions
@@ -56,18 +56,18 @@ const (
 // NodeFenceCondition describes the state of node fencing
 type NodeFenceCondition struct {
 	// Type of replication controller condition.
-	Type NodeFenceConditionType `json:"type" protobuf:"bytes,1,opt,name=type,casttype=NodeFenceConditionType"`
+	Type NodeFenceConditionType `json:"type"`
 	// Status of the condition, one of True, False, Unknown.
-	Status core_v1.ConditionStatus `json:"status" protobuf:"bytes,2,opt,name=status,casttype=ConditionStatus"`
+	Status core_v1.ConditionStatus `json:"status"`
 	// The last time the condition transitioned from one status to another.
 	// +optional
-	LastTransitionTime metav1.Time `json:"lastTransitionTime" protobuf:"bytes,3,opt,name=lastTransitionTime"`
+	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
 	// The reason for the condition's last transition.
 	// +optional
-	Reason string `json:"reason" protobuf:"bytes,4,opt,name=reason"`
+	Reason string `json:"reason"`
 	// A human readable message indicating details about the transition.
 	// +optional
-	Message string `json:"message" protobuf:"bytes,5,opt,name=message"`
+	Message string `json:"message"`
 }
 
 type NodeFenceStepType string
@@ -89,24 +89,24 @@ type NodeFence struct {
 	Metadata        metav1.ObjectMeta `json:"metadata"`
 
 	// Node represents the node to be fenced.
-	NodeName string `json:"node" protobuf:"bytes,2,opt,name=node"`
+	NodeName string `json:"node"`
 
 	// Step represent the current step in the fence operation
-	Step NodeFenceStepType `json:"step" protobuf:"bytes,5,opt,name=step"`
+	Step NodeFenceStepType `json:"step"`
 
 	// boolean represent if controller manage node's resource during fence
-	CleanResources bool `json:"clean_resources" protobuf:"bytes,5,opt,name=clean_resources"`
+	CleanResources bool `json:"clean_resources"`
 
 	// PV presents the persistent volume attached/mounted on the node
 	// +optional
-	//PV core_v1.PersistentVolume `json:"pv" protobuf:"bytes,3,opt,name=pv"`
+	//PV core_v1.PersistentVolume `json:"pv"`
 
 	// Status represents the latest observer state of the node fencing
-	//Status NodeFenceStatus `json:"status" protobuf:"bytes,4,opt,name=status"`
-	Status NodeFenceConditionType `json:"status" protobuf:"bytes,4,opt,name=status"`
+	//Status NodeFenceStatus `json:"status"`
+	Status NodeFenceConditionType `json:"status"`
 
 	// If running hostname is set with executor hostname
-	Hostname string `json:"hostname" protobuf:"bytes,4,opt,name=hostname"`
+	Hostname string `json:"hostname"`
 }
 
 // NodeFenceList is a list of NodeFence objects
@@ -118,10 +118,10 @@ type NodeFenceList struct {
 
 // NodeFenceConfig holds configmap values
 type NodeFenceConfig struct {
-	NodeName        string   `json:"node" protobuf:"bytes,2,opt,name=node"`
-	PowerManagement []string `json:"items"`
-	Isolation       []string `json:"items"`
-	Recovery        []string `json:"items"`
+	NodeName        string   `json:"node"`
+	PowerManagement []string `json:"power-management"`
+	Isolation       []string `json:"isolation"`
+	Recovery        []string `json:"recovery"`
 }
 
 // GetObjectKind is required to satisfy Object interface
