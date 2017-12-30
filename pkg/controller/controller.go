@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,13 +16,12 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 
+	"github.com/rootfs/node-fencing/pkg/fencing"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"github.com/rootfs/node-fencing/pkg/fencing"
 	"strconv"
 )
 
@@ -29,7 +29,10 @@ const (
 	crdPostInitialDelay = 2 * time.Second
 	crdPostFactor       = 1.2
 	crdPostSteps        = 5
-	gracePeriodDefault  = 5
+	// following defaults are used if fence-cluster-config configmap does not exists
+	gracePeriodDefault = 5
+	giveupRetries      = 5
+	clusterPolicies    = ""
 )
 
 var (
@@ -37,10 +40,11 @@ var (
 	supportedNodeProblemSources = sets.NewString("abrt-notification", "abrt-adaptor", "docker-monitor", "kernel-monitor", "kernel")
 )
 
+// Controller object implements watcher functionality for pods, nodes and events objects
 type Controller struct {
-	crdClient       *rest.RESTClient
-	crdScheme       *runtime.Scheme
-	client          kubernetes.Interface
+	crdClient *rest.RESTClient
+	crdScheme *runtime.Scheme
+	client    kubernetes.Interface
 
 	nodePVMap       map[string][]*v1.PersistentVolume
 	nodePVLock      *sync.Mutex
@@ -49,6 +53,7 @@ type Controller struct {
 	eventController cache.Controller
 }
 
+// NewNodeFencingController initializing controller
 func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTClient, crdScheme *runtime.Scheme) *Controller {
 	c := &Controller{
 		client:     client,
@@ -116,6 +121,7 @@ func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTC
 	return c
 }
 
+// Run starts watchers, start main loop and read cluster config
 func (c *Controller) Run(ctx <-chan struct{}) {
 	glog.Infof("Fence controller starting")
 
@@ -153,6 +159,8 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 	// Reading fence-cluster-config - this sets roles and timeouts for controller job
 	config := fencing.GetConfigValues("fence-cluster-config", "config.properties", c.client)
 	graceTimeout := time.Duration(gracePeriodDefault)
+	giveup := giveupRetries
+	policies := clusterPolicies
 	if config != nil {
 		// using defaults
 		gt, err := strconv.Atoi(config["grace_timeout"])
@@ -160,22 +168,31 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 			glog.Errorf("grace_timeout in fence-cluster-config is not int")
 		}
 		graceTimeout = time.Duration(gt)
+
+		gu, err := strconv.Atoi(config["giveup_retries"])
+		if err != nil {
+			glog.Errorf("giveup_retries in fence-cluster-config is not int")
+		}
+		giveup = gu
+
 	}
-	go c.handleExistingNodeFences(graceTimeout)
+	go c.handleExistingNodeFences(graceTimeout, giveup, strings.Split(policies, " "))
 }
 
 // handleExistingNodeFences go over nodefence objs every elapsedPeriod and
 // modify the nodefence object based on its state
-func (c *Controller) handleExistingNodeFences(elapsedPeriod time.Duration) {
+func (c *Controller) handleExistingNodeFences(elapsedPeriod time.Duration, giveupRetries int, roles []string) {
 	glog.Infof("Controller monitor is running every %d seconds", elapsedPeriod)
 	for range time.Tick(time.Duration(elapsedPeriod * time.Second)) {
+		if !c.forceClusterPolices(roles) {
+			continue
+		}
 		var nodeFences crdv1.NodeFenceList
 		err := c.crdClient.Get().Resource(crdv1.NodeFenceResourcePlural).Do().Into(&nodeFences)
 		if err != nil {
 			glog.Errorf("something went wrong - could not fetch nodefences - %s", err)
 		} else {
 			for _, nf := range nodeFences.Items {
-				glog.Infof("Read %s ..", nf.Metadata.Name)
 				switch nf.Status {
 				case crdv1.NodeFenceConditionNew:
 					c.handleNodeFenceNew(nf)
@@ -189,6 +206,23 @@ func (c *Controller) handleExistingNodeFences(elapsedPeriod time.Duration) {
 			}
 		}
 	}
+}
+
+// forceClusterPolices validates policies based on parameters and cluster status.
+// return false if fencing loop should not be proceeded
+func (c *Controller) forceClusterPolices(policies []string) bool {
+
+	//for _, policyName := range policies {
+	//	config := fencing.GetConfigValues("fence-policy-" + roleName, "config.properties", c.client)
+	//	switch policyName {
+	//	case "fence-limit":
+	//		// return false if more than config["precentage"] nodes are not responsive
+	//		// this requires to fetch cluster status from cache
+	//	}
+	//
+	//}
+
+	return true
 }
 
 func (c *Controller) handleNodeFenceNew(_ crdv1.NodeFence) {
@@ -219,7 +253,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 	var backToReady = true
 	node, err := c.client.CoreV1().Nodes().Get(nf.NodeName, metav1.GetOptions{})
 	if err != nil {
-		glog.Errorf("Failed reading node obj: ", nf.NodeName)
+		glog.Errorf("Failed reading node obj: %s", nf.NodeName)
 		return
 	}
 	for _, condition := range node.Status.Conditions {
@@ -412,7 +446,15 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 }
 
 func (c *Controller) createNewNodeFenceObject(node *v1.Node, pv *v1.PersistentVolume) {
-	nfName := fmt.Sprintf("node-fence-%s-%s", node.Name, uuid.NewUUID())
+	nfName := fmt.Sprintf("node-fence-%s", node.Name)
+
+	var result crdv1.NodeFence
+	err := c.crdClient.Get().Resource(crdv1.NodeFenceResourcePlural).Body(nfName).Do().Into(&result)
+	// If no error means the resource already exists
+	if err == nil {
+		glog.Infof("nodefence CRD for node %s already exists", node.Name)
+		return
+	}
 
 	nodeFencing := &crdv1.NodeFence{
 		Metadata: metav1.ObjectMeta{
@@ -429,8 +471,8 @@ func (c *Controller) createNewNodeFenceObject(node *v1.Node, pv *v1.PersistentVo
 		Factor:   crdPostFactor,
 		Steps:    crdPostSteps,
 	}
-	var result crdv1.NodeFence
-	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+
+	err = wait.ExponentialBackoff(backoff, func() (bool, error) {
 		err := c.crdClient.Post().
 			Resource(crdv1.NodeFenceResourcePlural).
 			Body(nodeFencing).

@@ -3,12 +3,12 @@ package fencing
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"github.com/golang/glog"
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"strings"
 )
 
 // GetNodeFenceConfig find the configmap obj relate to nodeName.
@@ -66,9 +66,12 @@ func ExecuteFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepTy
 			glog.Errorf("ExecuteFenceAgents::Failed to get node: %s", err)
 			return err
 		}
-		return executeFence(params, node)
+		err = executeFence(params, node)
+		if err != nil {
+			return err
+		}
 	}
-	glog.Infof("ExecuteFenceAgents::Finish execution for node: %s", config.NodeName)
+	glog.Infof("ExecuteFenceAgents::Finish execution for node: %s, step: %s", config.NodeName, step)
 	return nil
 }
 
@@ -77,7 +80,7 @@ func executeFence(params map[string]string, node *v1.Node) error {
 	if agentName, exists := params["agent_name"]; exists {
 		if agent, exists := agents[agentName]; exists {
 			if exists != true {
-				return errors.New(fmt.Sprintf("executeFence::failed to find agent_name %s", agentName))
+				return fmt.Errorf("executeFence::failed to find agent_name %s", agentName)
 			}
 			return agent.Function(params, node)
 		}
@@ -90,4 +93,3 @@ func getMethodParams(nodeName string, methodName string, c kubernetes.Interface)
 	methodFullName := "fence-method-" + methodName + "-" + nodeName
 	return GetConfigValues(methodFullName, "method.properties", c)
 }
-

@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+// Executor object implements watcher functionality for nodefence objects
 type Executor struct {
 	crdClient           *rest.RESTClient
 	crdScheme           *runtime.Scheme
@@ -103,7 +104,7 @@ func (c *Executor) handleExistingNodeFences() {
 func (c *Executor) startExecution(nf crdv1.NodeFence) {
 	config, err := fencing.GetNodeFenceConfig(nf.NodeName, c.client)
 	if err != nil {
-		glog.Errorf("node fencing failed on node %s", nf.NodeName)
+		glog.Errorf("Node fencing failed on node %s", nf.NodeName)
 		return
 	}
 	nf.Status = crdv1.NodeFenceConditionRunning
@@ -116,7 +117,7 @@ func (c *Executor) startExecution(nf crdv1.NodeFence) {
 	}
 	err = fencing.ExecuteFenceAgents(config, nf.Step, c.client)
 	if err != nil {
-		glog.Errorf("Failed to execute fence - moving to ERROR:", err)
+		glog.Errorf("Failed to execute fence - moving to ERROR: %s", err)
 		nf.Status = crdv1.NodeFenceConditionError
 	} else {
 		nf.Status = crdv1.NodeFenceConditionDone

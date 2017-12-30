@@ -11,24 +11,24 @@ items:
    config.properties: |-
     grace_timeout=10
     giveup_retries=5
-    roles=
+    policies=max-fence-limit
 
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-config-kubernetes-minion-group-9ssp
+   name: fence-config-kubernetes-minion-group-48dw
    namespace: default
   data:
    config.properties: |-
-    node_name=kubernetes-minion-group-9ssp
+    node_name=kubernetes-minion-group-48dw
     isolation=cordon
-    power_management=gcloud-reset-inst
+    power_management=gcloud-reset-inst clean-pods
     recovery=uncordon
 
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-gcloud-reset-inst-kubernetes-minion-group-9ssp
+   name: fence-method-gcloud-reset-inst-kubernetes-minion-group-48dw
    namespace: default
   data:
    method.properties: |
@@ -39,17 +39,29 @@ items:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-cordon-kubernetes-minion-group-9ssp
+   name: fence-method-cordon-kubernetes-minion-group-48dw
    namespace: default
   data:
    method.properties: |
           agent_name=cordon
+          script_path=fence-scripts/k8s_cordon_node.sh
 
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-uncordon-kubernetes-minion-group-9ssp
+   name: fence-method-uncordon-kubernetes-minion-group-48dw
    namespace: default
   data:
    method.properties: |
           agent_name=uncordon
+          script_path=fence-scripts/k8s_uncordon_node.sh
+
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+   name: fence-method-clean-pods-kubernetes-minion-group-48dw
+   namespace: default
+  data:
+   method.properties: |
+          agent_name=clean-pods
+          script_path=fence-scripts/k8s_clean_all_pods_on_node.sh
