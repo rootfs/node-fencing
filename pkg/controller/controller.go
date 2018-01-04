@@ -236,7 +236,7 @@ func (c *Controller) handleNodeFenceError(_ crdv1.NodeFence) {
 
 func (c *Controller) handleNodeFenceRunning(nf crdv1.NodeFence) {
 	// currently we just write to log - nothing should occur if nodefence is already processing
-	glog.Infof("Node fence is already running on: %s", nf.Hostname)
+	glog.Infof("Node fence jobs are already running on: %v", nf.Jobs)
 }
 
 func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {

@@ -15,7 +15,7 @@
 # Base image for fencing job
 FROM centos:7
 
-RUN yum install fence-agents-all; yum clean all
+RUN yum install fence-agents-all -y; yum clean all
 
 # copying local scripts
 ADD fencing-scripts/* /usr/sbin

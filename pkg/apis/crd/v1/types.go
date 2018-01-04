@@ -106,8 +106,8 @@ type NodeFence struct {
 	//Status NodeFenceStatus `json:"status"`
 	Status NodeFenceConditionType `json:"status"`
 
-	// If running hostname is set with executor hostname
-	Hostname string `json:"hostname"`
+	// Jobs list is list of job names related to current execution
+	Jobs []string `json:"jobs"`
 }
 
 // NodeFenceList is a list of NodeFence objects

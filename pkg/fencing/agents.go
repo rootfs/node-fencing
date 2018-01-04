@@ -40,8 +40,6 @@ func init() {
 	// filename will be the key, and function only executes the scripts with parameters from the the configmaps
 
 	// For now - we explicitly define Agent structure for each script under fence-scripts folder
-
-	var Agents = make(map[string]Agent)
 	Agents["ssh"] = Agent{
 		Name:              "ssh",
 		Desc:              "Agent login to host via ssh and restart kubelet - requires copy-id first to allow root login",
