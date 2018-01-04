@@ -78,7 +78,7 @@ const (
 	NodeFenceStepIsolation NodeFenceStepType = "Isolation"
 	// NodeFenceStepPowerManagement means the fence process in pm phase
 	NodeFenceStepPowerManagement NodeFenceStepType = "Power-Management"
-	// NodeFenceStepPowerRecovery means the fence process in recovery phase
+	// NodeFenceStepRecovery means the fence process in recovery phase
 	NodeFenceStepRecovery NodeFenceStepType = "Recovery"
 )
 
