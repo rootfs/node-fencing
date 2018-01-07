@@ -33,7 +33,7 @@ controller:
 clean:
 	-rm -rf _output
 
-container: controller executor
+container: controller
 	docker build -t $(MUTABLE_IMAGE_CONTROLLER) standalone-controller
 	docker tag $(MUTABLE_IMAGE_CONTROLLER) $(IMAGE_CONTROLLER)
 
