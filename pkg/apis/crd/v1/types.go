@@ -78,7 +78,7 @@ const (
 	NodeFenceStepIsolation NodeFenceStepType = "Isolation"
 	// NodeFenceStepPowerManagement means the fence process in pm phase
 	NodeFenceStepPowerManagement NodeFenceStepType = "Power-Management"
-	// NodeFenceStepPowerRecovery means the fence process in recovery phase
+	// NodeFenceStepRecovery means the fence process in recovery phase
 	NodeFenceStepRecovery NodeFenceStepType = "Recovery"
 )
 
@@ -95,19 +95,14 @@ type NodeFence struct {
 	// Step represent the current step in the fence operation
 	Step NodeFenceStepType `json:"step"`
 
-	// boolean represent if controller manage node's resource during fence
-	CleanResources bool `json:"clean_resources"`
+	// Retries counts handling retries by the controller
+	Retries int `json:"retries"`
 
-	// PV presents the persistent volume attached/mounted on the node
-	// +optional
-	//PV core_v1.PersistentVolume `json:"pv"`
-
-	// Status represents the latest observer state of the node fencing
-	//Status NodeFenceStatus `json:"status"`
+	// NodeFenceConditionType represents the latest observer state of the node fencing
 	Status NodeFenceConditionType `json:"status"`
 
-	// If running hostname is set with executor hostname
-	Hostname string `json:"hostname"`
+	// Jobs list is list of job names related to current execution
+	Jobs []string `json:"jobs"`
 }
 
 // NodeFenceList is a list of NodeFence objects

@@ -21,28 +21,21 @@ ifeq ($(VERSION),)
 endif
 
 IMAGE_CONTROLLER = $(REGISTRY)standalone-fence-controller:$(VERSION)
-IMAGE_EXECUTOR = $(REGISTRY)standalone-fence-executor:$(VERSION)
 MUTABLE_IMAGE_CONTROLLER = $(REGISTRY)standalone-fence-controller:latest
-MUTABLE_IMAGE_EXECUTOR = $(REGISTRY)standalone-fence-executor:latest
 
-.PHONY: all controller executor clean test
+.PHONY: all controller clean test
 
-all: controller executor
+all: controller
 
 controller:
 	go build -i -o standalone-controller/_output/bin/node-fencing-controller cmd/node-fencing-controller.go
 
-executor:
-	go build -i -o standalone-executor/_output/bin/node-fencing-executor cmd/node-fencing-executor.go
-
 clean:
 	-rm -rf _output
 
-container: controller executor
+container: controller
 	docker build -t $(MUTABLE_IMAGE_CONTROLLER) standalone-controller
 	docker tag $(MUTABLE_IMAGE_CONTROLLER) $(IMAGE_CONTROLLER)
-	docker build -t $(MUTABLE_IMAGE_EXECUTOR) standalone-executor
-	docker tag $(MUTABLE_IMAGE_EXECUTOR) $(IMAGE_EXECUTOR)
 
 test:
 	go test `go list ./... | grep -v 'vendor'`

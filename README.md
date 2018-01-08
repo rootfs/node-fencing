@@ -1,6 +1,6 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/rootfs/node-fencing)](https://goreportcard.com/report/github.com/rootfs/node-fencing)
 
-# Kubernetes Node Fence controller and executor
+# Kubernetes Node Fence controller
 
 # Status
 pre-alpha
@@ -40,9 +40,14 @@ The controller moves between steps every grace_period which is defined by the fe
     roles=
 ```
 
-# Demo
+# Build
 ```console
 # make
+go build -i -o standalone-controller/_output/bin/node-fencing-controller cmd/node-fencing-controller.go
+```
+
+# Run
+```console
 # $ ./standalone-controller/_output/bin/node-fencing-controller -kubeconfig=/home/ybronhaim/.kube/config
   I1228 10:29:01.180885    6376 controller.go:120] Fence controller starting
   I1228 10:29:01.181089    6376 controller.go:123] Waiting for pod informer initial sync
@@ -55,14 +60,7 @@ The controller moves between steps every grace_period which is defined by the fe
   ...
 ```
 
-On a different console:
+# Deployment in cluster
+TODO
 
-```console
-# $ ./standalone-executor/_output/bin/node-fencing-executor -kubeconfig=/home/ybronhaim/.kube/config
-I1228 10:36:16.764111    7157 executor.go:60] Node fence executor starting
-I1228 10:36:16.764210    7157 executor.go:62] Waiting for informer initial sync
-I1228 10:36:16.920480    7157 executor.go:133] New fence object node1-48dw-fb2a0ae8-eba9-11e7-809c-68f728ac95ea
- ...
-```
-
-In https://www.youtube.com/watch?v=l6B7JsAoh50&t we show the full example over GCE k8s cluster
+In https://www.youtube.com/watch?v=l6B7JsAoh50&t we show running example over GCE k8s cluster

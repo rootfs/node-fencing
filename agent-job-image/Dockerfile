@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Base image for fencing job
 FROM centos:7
 
-ADD _output/bin/node-fencing-executor /
+RUN yum install fence-agents-all -y; yum clean all
 
-ENTRYPOINT ["/node-fencing-executor"]
+# copying local scripts
+ADD fencing-scripts/* /usr/sbin

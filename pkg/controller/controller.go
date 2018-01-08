@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,18 +12,21 @@ import (
 
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
 
-	"k8s.io/api/core/v1"
+	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 
+	"strconv"
+
 	"github.com/rootfs/node-fencing/pkg/fencing"
+	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"strconv"
 )
 
 const (
@@ -33,6 +37,9 @@ const (
 	gracePeriodDefault = 5
 	giveupRetries      = 5
 	clusterPolicies    = ""
+
+	jobImageName     = "docker.io/bronhaim/agent-image:latest"
+	workingNamespace = "default"
 )
 
 var (
@@ -46,7 +53,7 @@ type Controller struct {
 	crdScheme *runtime.Scheme
 	client    kubernetes.Interface
 
-	nodePVMap       map[string][]*v1.PersistentVolume
+	nodePVMap       map[string][]*apiv1.PersistentVolume
 	nodePVLock      *sync.Mutex
 	nodeController  cache.Controller
 	podController   cache.Controller
@@ -57,7 +64,7 @@ type Controller struct {
 func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTClient, crdScheme *runtime.Scheme) *Controller {
 	c := &Controller{
 		client:     client,
-		nodePVMap:  make(map[string][]*v1.PersistentVolume),
+		nodePVMap:  make(map[string][]*apiv1.PersistentVolume),
 		nodePVLock: &sync.Mutex{},
 		crdClient:  crdClient,
 		crdScheme:  crdScheme,
@@ -66,12 +73,12 @@ func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTC
 	nodeListWatcher := cache.NewListWatchFromClient(
 		client.Core().RESTClient(),
 		"nodes",
-		v1.NamespaceAll,
+		apiv1.NamespaceAll,
 		fields.Everything())
 
 	_, nodeController := cache.NewInformer(
 		nodeListWatcher,
-		&v1.Node{},
+		&apiv1.Node{},
 		time.Minute*60,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    c.onNodeAdd,
@@ -85,12 +92,12 @@ func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTC
 	podListWatcher := cache.NewListWatchFromClient(
 		client.Core().RESTClient(),
 		"pods",
-		v1.NamespaceAll,
+		apiv1.NamespaceAll,
 		fields.Everything())
 
 	_, podController := cache.NewInformer(
 		podListWatcher,
-		&v1.Pod{},
+		&apiv1.Pod{},
 		time.Minute*60,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    c.onPodAdd,
@@ -104,12 +111,12 @@ func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTC
 	eventListWatcher := cache.NewListWatchFromClient(
 		client.Core().RESTClient(),
 		"events",
-		v1.NamespaceAll,
+		apiv1.NamespaceAll,
 		fields.Everything())
 
 	_, eventController := cache.NewInformer(
 		eventListWatcher,
-		&v1.Event{},
+		&apiv1.Event{},
 		time.Minute*60,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: c.onEventAdd,
@@ -117,7 +124,6 @@ func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTC
 	)
 
 	c.eventController = eventController
-
 	return c
 }
 
@@ -182,15 +188,17 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 // handleExistingNodeFences go over nodefence objs every elapsedPeriod and
 // modify the nodefence object based on its state
 func (c *Controller) handleExistingNodeFences(elapsedPeriod time.Duration, giveupRetries int, roles []string) {
-	glog.Infof("Controller monitor is running every %d seconds", elapsedPeriod)
+	glog.Infof("handleExistingNodeFences::Controller monitor is running every %d seconds", elapsedPeriod)
 	for range time.Tick(time.Duration(elapsedPeriod * time.Second)) {
 		if !c.forceClusterPolices(roles) {
 			continue
 		}
 		var nodeFences crdv1.NodeFenceList
+		var giveup bool
+
 		err := c.crdClient.Get().Resource(crdv1.NodeFenceResourcePlural).Do().Into(&nodeFences)
 		if err != nil {
-			glog.Errorf("something went wrong - could not fetch nodefences - %s", err)
+			glog.Errorf("handleExistingNodeFences::could not fetch nodefences - %s", err)
 		} else {
 			for _, nf := range nodeFences.Items {
 				switch nf.Status {
@@ -199,7 +207,12 @@ func (c *Controller) handleExistingNodeFences(elapsedPeriod time.Duration, giveu
 				case crdv1.NodeFenceConditionError:
 					c.handleNodeFenceError(nf)
 				case crdv1.NodeFenceConditionRunning:
-					c.handleNodeFenceRunning(nf)
+					// set failOnError to true based on retries
+					giveup = false
+					if nf.Retries == giveupRetries {
+						giveup = true
+					}
+					c.handleNodeFenceRunning(nf, giveup)
 				case crdv1.NodeFenceConditionDone:
 					c.handleNodeFenceDone(nf)
 				}
@@ -225,19 +238,91 @@ func (c *Controller) forceClusterPolices(policies []string) bool {
 	return true
 }
 
-func (c *Controller) handleNodeFenceNew(_ crdv1.NodeFence) {
-	// TODO: Check if one executor at least is running already - if not, start one
+// handleNodeFenceNew triggered when nodefence on status new
+func (c *Controller) handleNodeFenceNew(nf crdv1.NodeFence) {
+	c.startExecution(nf)
 }
 
-func (c *Controller) handleNodeFenceError(_ crdv1.NodeFence) {
-	// TODO: Check if current executor failed to run - if so, initiates new executor
+// handleNodeFenceError this function is called when nodefence object on status Error,
+// in this phase we clean all related job and change nodefence status to New to retrigger
+// all jobs.
+func (c *Controller) handleNodeFenceError(nf crdv1.NodeFence) {
+	for _, jobName := range nf.Jobs {
+		err := c.client.BatchV1().Jobs(workingNamespace).Delete(jobName, &metav1.DeleteOptions{})
+		if err != nil {
+			glog.Errorf("handleNodeFenceError::Failed to delete job object: %s", err)
+			return
+		}
+	}
+
+	glog.Infof("handleNodeFenceError::Fence handling retries for node %s failed.", nf.NodeName)
+
+	// TODO: handling retries error - in this scenerio we would want to retrigger job
+
+	// nf.Retries = 0
+	// nf.Status = crdv1.NodeFenceConditionNew
+	// err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+	// if err != nil {
+	// 	glog.Errorf("Failed to update nodefence status to 'new': %s", err)
+	// 	return
+	// }
 }
 
-func (c *Controller) handleNodeFenceRunning(nf crdv1.NodeFence) {
-	// currently we just write to log - nothing should occur if nodefence is already processing
-	glog.Infof("Node fence is already running on: %s", nf.Hostname)
+// handleNodeFenceRunning this function is called when nodefence object on status Running,
+// in this phase we read all related job objects by their names, and check if they on completed
+// status, if all related jobs completed move nodefence to Done state and clean jobs,
+// if not, if failOnError is true - set nodefence status to Error
+func (c *Controller) handleNodeFenceRunning(nf crdv1.NodeFence, failOnError bool) {
+	done := true
+	for _, jobName := range nf.Jobs {
+		jobObj, err := c.client.BatchV1().Jobs(workingNamespace).Get(jobName, metav1.GetOptions{})
+		if err != nil {
+			glog.Errorf("Failed to get job object: %s", err)
+		}
+		if !fencing.CheckJobComplition(*jobObj) {
+			done = false
+			break
+		}
+	}
+	if done {
+		nf.Status = crdv1.NodeFenceConditionDone
+		err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+		if err != nil {
+			glog.Errorf("Failed to update nodefence status to 'done': %s", err)
+			return
+		}
+		for _, jobName := range nf.Jobs {
+			err := c.client.BatchV1().Jobs(workingNamespace).Delete(jobName, &metav1.DeleteOptions{})
+			if err != nil {
+				glog.Errorf("Failed to delete job object: %s", err)
+				return
+			}
+		}
+	} else {
+		if failOnError {
+			nf.Status = crdv1.NodeFenceConditionError
+			err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+			if err != nil {
+				glog.Errorf("Failed to update nodefence status to 'error': %s", err)
+				return
+			}
+			// Q: clean old jobs or leave to them on fail state?
+		} else {
+			nf.Retries = nf.Retries + 1
+			err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+			if err != nil {
+				glog.Errorf("Failed to update nodefence status to 'error': %s", err)
+				return
+			}
+		}
+	}
 }
 
+// handleNodeFenceDone when nodefence on status Done, this function will update the step.
+// if step is Recovery, nodefence is removed
+// if node back to readiness - move to Recovery
+// if still not ready - move to power-manegement
+// if already in PM state and giveup_retries passed - move to Error
 func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 	if nf.Step == crdv1.NodeFenceStepRecovery { // recovery completed
 		glog.Infof("Fence for node %s completed successfully", nf.NodeName)
@@ -249,7 +334,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 		return
 	}
 	// Check if node is still in unknown state
-	var node *v1.Node
+	var node *apiv1.Node
 	var backToReady = true
 	node, err := c.client.CoreV1().Nodes().Get(nf.NodeName, metav1.GetOptions{})
 	if err != nil {
@@ -264,6 +349,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 	if backToReady {
 		glog.Infof("Node %s is back to ready state. Moving to Recovery stage", nf.NodeName)
 		nf.Status = crdv1.NodeFenceConditionNew
+		nf.Retries = 0
 		nf.Step = crdv1.NodeFenceStepRecovery
 		err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
 		if err != nil {
@@ -275,6 +361,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 		case crdv1.NodeFenceStepIsolation:
 			glog.Infof("Isolation is done - moving to Power-Management step for node %s", nf.NodeName)
 			nf.Status = crdv1.NodeFenceConditionNew
+			nf.Retries = 0
 			nf.Step = crdv1.NodeFenceStepPowerManagement
 			err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
 			if err != nil {
@@ -289,7 +376,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 }
 
 func (c *Controller) onNodeAdd(obj interface{}) {
-	node := obj.(*v1.Node)
+	node := obj.(*apiv1.Node)
 	glog.V(4).Infof("add node: %s", node.Name)
 
 	for _, condition := range node.Status.Conditions {
@@ -299,10 +386,10 @@ func (c *Controller) onNodeAdd(obj interface{}) {
 	}
 }
 
-func (c *Controller) checkReadiness(node *v1.Node, cond v1.NodeCondition) bool {
+func (c *Controller) checkReadiness(node *apiv1.Node, cond apiv1.NodeCondition) bool {
 	readiness := true
 	nodeName := node.Name
-	if v1.NodeReady == cond.Type && v1.ConditionUnknown == cond.Status {
+	if apiv1.NodeReady == cond.Type && apiv1.ConditionUnknown == cond.Status {
 		glog.Warningf("Node %s ready status is unknown", nodeName)
 		if len(c.nodePVMap[nodeName]) > 0 {
 			glog.Warningf("PVs on node %s:", nodeName)
@@ -318,8 +405,8 @@ func (c *Controller) checkReadiness(node *v1.Node, cond v1.NodeCondition) bool {
 }
 
 func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
-	oldNode := oldObj.(*v1.Node)
-	newNode := newObj.(*v1.Node)
+	oldNode := oldObj.(*apiv1.Node)
+	newNode := newObj.(*apiv1.Node)
 	glog.V(4).Infof("update node: %s/%s", oldNode.Name, newNode.Name)
 
 	for _, newCondition := range newNode.Status.Conditions {
@@ -339,12 +426,12 @@ func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
 }
 
 func (c *Controller) onNodeDelete(obj interface{}) {
-	node := obj.(*v1.Node)
+	node := obj.(*apiv1.Node)
 	glog.Infof("delete node: %s", node.Name)
 }
 
 func (c *Controller) onPodAdd(obj interface{}) {
-	pod := obj.(*v1.Pod)
+	pod := obj.(*apiv1.Pod)
 	glog.V(4).Infof("add pod: %s", pod.Name)
 	if c.podHasOwner(pod) {
 		c.updateNodePV(pod, true)
@@ -352,8 +439,8 @@ func (c *Controller) onPodAdd(obj interface{}) {
 }
 
 func (c *Controller) onPodUpdate(oldObj, newObj interface{}) {
-	oldPod := oldObj.(*v1.Pod)
-	newPod := newObj.(*v1.Pod)
+	oldPod := oldObj.(*apiv1.Pod)
+	newPod := newObj.(*apiv1.Pod)
 	glog.V(4).Infof("update pod: %s/%s", oldPod.Name, newPod.Name)
 	//FIXME: should evaluate PV status between old and new pod before update node pv map
 	if c.podHasOwner(newPod) {
@@ -362,7 +449,7 @@ func (c *Controller) onPodUpdate(oldObj, newObj interface{}) {
 }
 
 func (c *Controller) onPodDelete(obj interface{}) {
-	pod := obj.(*v1.Pod)
+	pod := obj.(*apiv1.Pod)
 	glog.V(4).Infof("delete pod: %s", pod.Name)
 	if c.podHasOwner(pod) {
 		c.updateNodePV(pod, false)
@@ -370,7 +457,7 @@ func (c *Controller) onPodDelete(obj interface{}) {
 }
 
 func (c *Controller) onEventAdd(obj interface{}) {
-	event := obj.(*v1.Event)
+	event := obj.(*apiv1.Event)
 	glog.V(4).Infof("received: %v", event)
 	// only process node problem event
 	// TODO use rule based config to post fence object
@@ -384,7 +471,7 @@ func (c *Controller) onEventAdd(obj interface{}) {
 	}
 }
 
-func (c *Controller) updateNodePV(pod *v1.Pod, toAdd bool) {
+func (c *Controller) updateNodePV(pod *apiv1.Pod, toAdd bool) {
 	node := pod.Spec.NodeName
 	if len(node) == 0 {
 		return
@@ -414,7 +501,7 @@ func (c *Controller) updateNodePV(pod *v1.Pod, toAdd bool) {
 	}
 }
 
-func (c *Controller) podHasOwner(pod *v1.Pod) bool {
+func (c *Controller) podHasOwner(pod *apiv1.Pod) bool {
 	if len(pod.OwnerReferences) != 0 {
 		for _, owner := range pod.OwnerReferences {
 			if owner.BlockOwnerDeletion != nil {
@@ -426,7 +513,7 @@ func (c *Controller) podHasOwner(pod *v1.Pod) bool {
 	return false
 }
 
-func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd bool) {
+func (c *Controller) updateNodePVMap(node string, pv *apiv1.PersistentVolume, toAdd bool) {
 	c.nodePVLock.Lock()
 	defer c.nodePVLock.Unlock()
 	for i, p := range c.nodePVMap[node] {
@@ -445,7 +532,7 @@ func (c *Controller) updateNodePVMap(node string, pv *v1.PersistentVolume, toAdd
 	glog.V(6).Infof("node %s pv map: %v", node, c.nodePVMap[node])
 }
 
-func (c *Controller) createNewNodeFenceObject(node *v1.Node, pv *v1.PersistentVolume) {
+func (c *Controller) createNewNodeFenceObject(node *apiv1.Node, pv *apiv1.PersistentVolume) {
 	nfName := fmt.Sprintf("node-fence-%s", node.Name)
 
 	var result crdv1.NodeFence
@@ -460,10 +547,10 @@ func (c *Controller) createNewNodeFenceObject(node *v1.Node, pv *v1.PersistentVo
 		Metadata: metav1.ObjectMeta{
 			Name: nfName,
 		},
-		CleanResources: true,
-		Step:           crdv1.NodeFenceStepIsolation,
-		NodeName:       node.Name,
-		Status:         crdv1.NodeFenceConditionNew,
+		Retries:  0,
+		Step:     crdv1.NodeFenceStepIsolation,
+		NodeName: node.Name,
+		Status:   crdv1.NodeFenceConditionNew,
 	}
 
 	backoff := wait.Backoff{
@@ -486,17 +573,135 @@ func (c *Controller) createNewNodeFenceObject(node *v1.Node, pv *v1.PersistentVo
 	if err != nil {
 		glog.Warningf("failed to post NodeFence CRD object: %v", err)
 	} else {
-		glog.Infof("Posted NodeFence CRD object for node %s - starting Isolation", node.Name)
+		glog.Infof("Posted NodeFence CRD object for node %s", node.Name)
 	}
 }
 
-func (c *Controller) nodeProblemEvent(event *v1.Event) (bool, string) {
+func (c *Controller) nodeProblemEvent(event *apiv1.Event) (bool, string) {
 	if event == nil {
 		return false, ""
 	}
-	if event.Type == v1.EventTypeWarning &&
+	if event.Type == apiv1.EventTypeWarning &&
 		supportedNodeProblemSources.Has(string(event.Source.Component)) {
 		return true, event.Source.Host
 	}
 	return false, ""
+}
+
+// startExecution gets nodefence obj, retrieve required fields to run ExecuteFenceAgents and updates
+// the nodefence obj based on the return value
+func (c *Controller) startExecution(nf crdv1.NodeFence) {
+	config, err := fencing.GetNodeFenceConfig(nf.NodeName, c.client)
+	if err != nil {
+		glog.Errorf("Node fencing failed on node %s", nf.NodeName)
+		return
+	}
+	jobsNames, err := c.executeFenceAgents(config, nf.Step)
+	if err != nil {
+		glog.Errorf("Failed to execute fence - moving to ERROR: %s", err)
+		nf.Status = crdv1.NodeFenceConditionError
+		err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+		if err != nil {
+			glog.Errorf("Failed to update status to 'running': %s", err)
+			return
+		}
+	} else {
+		nf.Status = crdv1.NodeFenceConditionRunning
+		nf.Jobs = jobsNames
+		err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+		if err != nil {
+			glog.Errorf("Failed to update status to 'running': %s", err)
+			return
+		}
+	}
+}
+
+// executeFenceAgents gets NodeFenceConfig and the step to run.
+// The function iterates over methods' names, fetch their parameters and
+// executes job related to the method. There run go function to monitor the jobs till all finish
+// succesfully.
+func (c *Controller) executeFenceAgents(config crdv1.NodeFenceConfig, step crdv1.NodeFenceStepType) ([]string, error) {
+	glog.Infof("Running fence execution for node %s, step %s", config.NodeName, step)
+	methods := []string{}
+	jobsNamesList := []string{}
+
+	switch step {
+	case crdv1.NodeFenceStepIsolation:
+		methods = config.Isolation
+	case crdv1.NodeFenceStepPowerManagement:
+		methods = config.PowerManagement
+	case crdv1.NodeFenceStepRecovery:
+		methods = config.Recovery
+	default:
+		return jobsNamesList, errors.New("ExecuteFenceAgents::Invalid step parameter")
+	}
+
+	for _, method := range methods {
+		if method == "" {
+			glog.Infof("ExecuteFenceAgents::Nothing to execute in step %s", step)
+			return nil, nil
+		}
+		params := fencing.GetMethodParams(config.NodeName, method, c.client)
+		// find template if exists and add its fields
+		if temp, exists := params["template"]; exists {
+			tempParams := fencing.GetConfigValues(temp, "template.properties", c.client)
+			for k, v := range tempParams {
+				params[k] = v
+			}
+		}
+		glog.Infof("ExecuteFenceAgents::Executing method: %s", method)
+		node, err := c.client.CoreV1().Nodes().Get(config.NodeName, metav1.GetOptions{})
+		if err != nil {
+			return jobsNamesList, fmt.Errorf("ExecuteFenceAgents::Failed to get node: %s", err)
+		}
+		jobName, err := c.runFence(params, node)
+		if err != nil {
+			return jobsNamesList, err
+		}
+		jobsNamesList = append(jobsNamesList, jobName)
+	}
+	return jobsNamesList, nil
+}
+
+// runFence calls function related to agent_name in the method parameters
+func (c *Controller) runFence(params map[string]string, node *apiv1.Node) (string, error) {
+	if agentName, exists := params["agent_name"]; exists {
+		if agent, exists := fencing.Agents[agentName]; exists {
+			job, err := c.postNewJobObj(
+				workingNamespace,
+				agent.ExtractParameters(params, node),
+				params["agent_name"],
+				jobImageName)
+			if err != nil {
+				return "", fmt.Errorf("executeFence::failed to create job: %s", err)
+			}
+			glog.Infof("New job created - %s", job.Name)
+			return job.Name, nil
+		}
+		return "", fmt.Errorf("executeFence::%s agent is missing", params["agent_name"])
+	}
+	return "", errors.New("executeFence::agent_name parameter does not exist in fence method configuration")
+}
+
+func (c *Controller) postNewJobObj(namespace string, cmd []string, name string, image string) (*batchv1.Job, error) {
+	job := new(batchv1.Job)
+	container := apiv1.Container{
+		Name:    name,
+		Image:   image,
+		Command: cmd,
+	}
+
+	jobUniqueName := fmt.Sprintf("%s-%s", name, uuid.NewUUID())
+	job.Name = jobUniqueName
+	job.TypeMeta = metav1.TypeMeta{}
+	job.ObjectMeta = metav1.ObjectMeta{Name: jobUniqueName}
+	job.Spec = batchv1.JobSpec{
+		Template: apiv1.PodTemplateSpec{
+			Spec: apiv1.PodSpec{
+				RestartPolicy: "Never",
+				Containers:    []apiv1.Container{container},
+			}},
+	}
+	job, err := c.client.BatchV1().Jobs(namespace).Create(job)
+	return job, err
 }
