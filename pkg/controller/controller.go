@@ -53,12 +53,11 @@ type Controller struct {
 	crdScheme *runtime.Scheme
 	client    kubernetes.Interface
 
-	nodePVMap           map[string][]*apiv1.PersistentVolume
-	nodePVLock          *sync.Mutex
-	nodeController      cache.Controller
-	podController       cache.Controller
-	eventController     cache.Controller
-	nodeFenceController cache.Controller
+	nodePVMap       map[string][]*apiv1.PersistentVolume
+	nodePVLock      *sync.Mutex
+	nodeController  cache.Controller
+	podController   cache.Controller
+	eventController cache.Controller
 }
 
 // NewNodeFencingController initializing controller
@@ -125,25 +124,6 @@ func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTC
 	)
 
 	c.eventController = eventController
-
-	// Watch NodeFence objects
-	nodeFenceListWatcher := cache.NewListWatchFromClient(
-		c.crdClient,
-		crdv1.NodeFenceResourcePlural,
-		apiv1.NamespaceAll,
-		fields.Everything())
-
-	_, nodeFenceController := cache.NewInformer(
-		nodeFenceListWatcher,
-		&crdv1.NodeFence{},
-		time.Minute*60,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc:    c.onNodeFencingAdd,
-			UpdateFunc: c.onNodeFencingUpdate,
-		},
-	)
-
-	c.nodeFenceController = nodeFenceController
 	return c
 }
 
@@ -179,16 +159,6 @@ func (c *Controller) Run(ctx <-chan struct{}) {
 	})
 	if !c.eventController.HasSynced() {
 		glog.Errorf("event informer initial sync timeout")
-		os.Exit(1)
-	}
-
-	go c.nodeFenceController.Run(ctx)
-	glog.Infof("Waiting for nodefence informer initial sync")
-	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
-		return c.nodeFenceController.HasSynced(), nil
-	})
-	if !c.nodeFenceController.HasSynced() {
-		glog.Errorf("node fence informer controller initial sync timeout")
 		os.Exit(1)
 	}
 
@@ -713,18 +683,4 @@ func (c *Controller) postNewJobObj(namespace string, cmd []string, name string, 
 	}
 	job, err := c.client.BatchV1().Jobs(namespace).Create(job)
 	return job, err
-}
-
-func (c *Controller) onNodeFencingAdd(obj interface{}) {
-	fence := obj.(*crdv1.NodeFence)
-	glog.Infof("New fence object %s", fence.Metadata.Name)
-	c.startExecution(*fence)
-}
-
-func (c *Controller) onNodeFencingUpdate(oldObj, newObj interface{}) {
-	oldFence := oldObj.(*crdv1.NodeFence)
-	newFence := newObj.(*crdv1.NodeFence)
-	if oldFence.Step != newFence.Step {
-		c.startExecution(*newFence)
-	}
 }
