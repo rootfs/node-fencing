@@ -194,6 +194,8 @@ func (c *Controller) handleExistingNodeFences(elapsedPeriod time.Duration, giveu
 			continue
 		}
 		var nodeFences crdv1.NodeFenceList
+		var giveup bool
+
 		err := c.crdClient.Get().Resource(crdv1.NodeFenceResourcePlural).Do().Into(&nodeFences)
 		if err != nil {
 			glog.Errorf("handleExistingNodeFences::could not fetch nodefences - %s", err)
@@ -206,7 +208,11 @@ func (c *Controller) handleExistingNodeFences(elapsedPeriod time.Duration, giveu
 					c.handleNodeFenceError(nf)
 				case crdv1.NodeFenceConditionRunning:
 					// set failOnError to true based on retries
-					c.handleNodeFenceRunning(nf, false)
+					giveup = false
+					if nf.Retries == giveupRetries {
+						giveup = true
+					}
+					c.handleNodeFenceRunning(nf, giveup)
 				case crdv1.NodeFenceConditionDone:
 					c.handleNodeFenceDone(nf)
 				}
@@ -244,17 +250,22 @@ func (c *Controller) handleNodeFenceError(nf crdv1.NodeFence) {
 	for _, jobName := range nf.Jobs {
 		err := c.client.BatchV1().Jobs(workingNamespace).Delete(jobName, &metav1.DeleteOptions{})
 		if err != nil {
-			glog.Errorf("Failed to delete job object: %s", err)
+			glog.Errorf("handleNodeFenceError::Failed to delete job object: %s", err)
 			return
 		}
 	}
 
-	nf.Status = crdv1.NodeFenceConditionNew
-	err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-	if err != nil {
-		glog.Errorf("Failed to update nodefence status to 'new': %s", err)
-		return
-	}
+	glog.Infof("handleNodeFenceError::Fence handling retries for node %s failed.", nf.NodeName)
+
+	// TODO: handling retries error - in this scenerio we would want to retrigger job
+
+	// nf.Retries = 0
+	// nf.Status = crdv1.NodeFenceConditionNew
+	// err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+	// if err != nil {
+	// 	glog.Errorf("Failed to update nodefence status to 'new': %s", err)
+	// 	return
+	// }
 }
 
 // handleNodeFenceRunning this function is called when nodefence object on status Running,
@@ -270,6 +281,7 @@ func (c *Controller) handleNodeFenceRunning(nf crdv1.NodeFence, failOnError bool
 		}
 		if !fencing.CheckJobComplition(*jobObj) {
 			done = false
+			break
 		}
 	}
 	if done {
@@ -289,6 +301,14 @@ func (c *Controller) handleNodeFenceRunning(nf crdv1.NodeFence, failOnError bool
 	} else {
 		if failOnError {
 			nf.Status = crdv1.NodeFenceConditionError
+			err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+			if err != nil {
+				glog.Errorf("Failed to update nodefence status to 'error': %s", err)
+				return
+			}
+			// Q: clean old jobs or leave to them on fail state?
+		} else {
+			nf.Retries = nf.Retries + 1
 			err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
 			if err != nil {
 				glog.Errorf("Failed to update nodefence status to 'error': %s", err)
@@ -329,6 +349,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 	if backToReady {
 		glog.Infof("Node %s is back to ready state. Moving to Recovery stage", nf.NodeName)
 		nf.Status = crdv1.NodeFenceConditionNew
+		nf.Retries = 0
 		nf.Step = crdv1.NodeFenceStepRecovery
 		err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
 		if err != nil {
@@ -340,6 +361,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 		case crdv1.NodeFenceStepIsolation:
 			glog.Infof("Isolation is done - moving to Power-Management step for node %s", nf.NodeName)
 			nf.Status = crdv1.NodeFenceConditionNew
+			nf.Retries = 0
 			nf.Step = crdv1.NodeFenceStepPowerManagement
 			err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
 			if err != nil {
@@ -525,10 +547,10 @@ func (c *Controller) createNewNodeFenceObject(node *apiv1.Node, pv *apiv1.Persis
 		Metadata: metav1.ObjectMeta{
 			Name: nfName,
 		},
-		CleanResources: true,
-		Step:           crdv1.NodeFenceStepIsolation,
-		NodeName:       node.Name,
-		Status:         crdv1.NodeFenceConditionNew,
+		Retries:  0,
+		Step:     crdv1.NodeFenceStepIsolation,
+		NodeName: node.Name,
+		Status:   crdv1.NodeFenceConditionNew,
 	}
 
 	backoff := wait.Backoff{
@@ -551,7 +573,7 @@ func (c *Controller) createNewNodeFenceObject(node *apiv1.Node, pv *apiv1.Persis
 	if err != nil {
 		glog.Warningf("failed to post NodeFence CRD object: %v", err)
 	} else {
-		glog.Infof("Posted NodeFence CRD object for node %s - starting Isolation", node.Name)
+		glog.Infof("Posted NodeFence CRD object for node %s", node.Name)
 	}
 }
 
@@ -638,7 +660,6 @@ func (c *Controller) executeFenceAgents(config crdv1.NodeFenceConfig, step crdv1
 		}
 		jobsNamesList = append(jobsNamesList, jobName)
 	}
-	glog.Infof("ExecuteFenceAgents::Ran jobs for node: %s, step: %s", config.NodeName, step)
 	return jobsNamesList, nil
 }
 

@@ -95,15 +95,10 @@ type NodeFence struct {
 	// Step represent the current step in the fence operation
 	Step NodeFenceStepType `json:"step"`
 
-	// boolean represent if controller manage node's resource during fence
-	CleanResources bool `json:"clean_resources"`
+	// Retries counts handling retries by the controller
+	Retries int `json:"retries"`
 
-	// PV presents the persistent volume attached/mounted on the node
-	// +optional
-	//PV core_v1.PersistentVolume `json:"pv"`
-
-	// Status represents the latest observer state of the node fencing
-	//Status NodeFenceStatus `json:"status"`
+	// NodeFenceConditionType represents the latest observer state of the node fencing
 	Status NodeFenceConditionType `json:"status"`
 
 	// Jobs list is list of job names related to current execution
