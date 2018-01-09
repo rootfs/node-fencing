@@ -1,6 +1,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/rootfs/node-fencing)](https://goreportcard.com/report/github.com/rootfs/node-fencing)
 
 # Kubernetes Node Fence controller
+Based on [fence controller design proposal](https://github.com/bronhaim/community/blob/06e367cd5ca391b1a650f2de606875af73604198/contributors/design-proposals/node/node-fence.md)
 
 # Status
 pre-alpha
@@ -61,6 +62,7 @@ go build -i -o standalone-controller/_output/bin/node-fencing-controller cmd/nod
 ```
 
 # Deployment in cluster
-TODO
+kubectl create -f standalone-controller/fence-controller-deployment.yaml
 
+# Demo
 In https://www.youtube.com/watch?v=l6B7JsAoh50&t we show running example over GCE k8s cluster
