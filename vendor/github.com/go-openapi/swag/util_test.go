@@ -29,10 +29,6 @@ type translationSample struct {
 
 func titleize(s string) string { return strings.ToTitle(s[:1]) + lower(s[1:]) }
 
-func init() {
-	AddInitialisms("elb", "cap", "capwd", "wd")
-}
-
 func TestToGoName(t *testing.T) {
 	samples := []translationSample{
 		{"sample text", "SampleText"},
@@ -41,9 +37,6 @@ func TestToGoName(t *testing.T) {
 		{"sampleText", "SampleText"},
 		{"sample 2 Text", "Sample2Text"},
 		{"findThingById", "FindThingByID"},
-		{"日本語sample 2 Text", "X日本語sample2Text"},
-		{"日本語findThingById", "X日本語findThingByID"},
-		{"findTHINGSbyID", "FindTHINGSbyID"},
 	}
 
 	for k := range commonInitialisms {
@@ -127,16 +120,8 @@ func TestToFileName(t *testing.T) {
 	samples := []translationSample{
 		{"SampleText", "sample_text"},
 		{"FindThingByID", "find_thing_by_id"},
-		{"CAPWD.folwdBylc", "capwd_folwd_bylc"},
-		{"CAPWDfolwdBylc", "capwdfolwd_bylc"},
-		{"CAP_WD_folwdBylc", "cap_wd_folwd_bylc"},
-		{"TypeOAI_alias", "type_oai_alias"},
-		{"Type_OAI_alias", "type_oai_alias"},
-		{"Type_OAIAlias", "type_oai_alias"},
-		{"ELB.HTTPLoadBalancer", "elb_http_load_balancer"},
-		{"elbHTTPLoadBalancer", "elb_http_load_balancer"},
-		{"ELBHTTPLoadBalancer", "elb_http_load_balancer"},
 	}
+
 	for k := range commonInitialisms {
 		samples = append(samples,
 			translationSample{"Sample" + k + "Text", "sample_" + lower(k) + "_text"},
@@ -152,7 +137,6 @@ func TestToCommandName(t *testing.T) {
 	samples := []translationSample{
 		{"SampleText", "sample-text"},
 		{"FindThingByID", "find-thing-by-id"},
-		{"elbHTTPLoadBalancer", "elb-http-load-balancer"},
 	}
 
 	for k := range commonInitialisms {
@@ -170,7 +154,6 @@ func TestToHumanName(t *testing.T) {
 	samples := []translationSample{
 		{"SampleText", "sample text"},
 		{"FindThingByID", "find thing by ID"},
-		{"elbHTTPLoadBalancer", "elb HTTP load balancer"},
 	}
 
 	for k := range commonInitialisms {
@@ -188,7 +171,6 @@ func TestToJSONName(t *testing.T) {
 	samples := []translationSample{
 		{"SampleText", "sampleText"},
 		{"FindThingByID", "findThingById"},
-		{"elbHTTPLoadBalancer", "elbHttpLoadBalancer"},
 	}
 
 	for k := range commonInitialisms {
