@@ -45,7 +45,7 @@ func main() {
 
 	d := &cldr.Decoder{}
 	d.SetDirFilter("supplemental", "main")
-	d.SetSectionFilter("numbers", "numberingSystem")
+	d.SetSectionFilter("numbers", "numberingSystem", "plurals")
 	data, err := d.DecodeZip(r)
 	if err != nil {
 		log.Fatalf("DecodeZip: %v", err)
@@ -60,7 +60,15 @@ func main() {
 
 	genNumSystem(w, data)
 	genSymbols(w, data)
+	genPlurals(w, data)
 	genFormats(w, data)
+
+	w = gen.NewCodeWriter()
+	defer w.WriteGoFile(*outputTestFile, pkg)
+
+	fmt.Fprintln(w, `import "golang.org/x/text/internal/format/plural"`)
+
+	genPluralsTests(w, data)
 }
 
 var systemMap = map[string]system{"latn": 0}
@@ -255,10 +263,10 @@ func genSymbols(w *gen.CodeWriter, data *cldr.CLDR) {
 
 	// resolveSymbolIndex gets the index from the closest matching locale,
 	// including the locale itself.
-	resolveSymbolIndex := func(langIndex int, ns system) symOffset {
+	resolveSymbolIndex := func(langIndex int, ns system) byte {
 		for {
 			if sym := symbolMap[key{langIndex, ns}]; sym != nil {
-				return symOffset(m[*sym])
+				return byte(m[*sym])
 			}
 			if langIndex == 0 {
 				return 0 // und, latn
@@ -270,7 +278,7 @@ func genSymbols(w *gen.CodeWriter, data *cldr.CLDR) {
 	// Create an index with the symbols for each locale for the latn numbering
 	// system. If this is not the default, or the only one, for a locale, we
 	// will overwrite the value later.
-	var langToDefaults [language.NumCompactTags]symOffset
+	var langToDefaults [language.NumCompactTags]byte
 	for _, l := range data.Locales() {
 		langIndex, _ := language.CompactIndex(language.MustParse(l))
 		langToDefaults[langIndex] = resolveSymbolIndex(langIndex, 0)
@@ -300,8 +308,8 @@ func genSymbols(w *gen.CodeWriter, data *cldr.CLDR) {
 	for _, l := range data.Locales() {
 		langIndex, _ := language.CompactIndex(language.MustParse(l))
 		start := len(langToAlt)
-		if start >= hasNonLatnMask {
-			log.Fatalf("Number of alternative assignments >= %x", hasNonLatnMask)
+		if start > 0x7F {
+			log.Fatal("Number of alternative assignments > 0x7F")
 		}
 		// Create the entry for the default value.
 		def := defaults[langIndex]
@@ -328,7 +336,7 @@ func genSymbols(w *gen.CodeWriter, data *cldr.CLDR) {
 			langToAlt = langToAlt[:start]
 		} else {
 			// Overwrite the entry in langToDefaults.
-			langToDefaults[langIndex] = hasNonLatnMask | symOffset(start)
+			langToDefaults[langIndex] = 0x80 | byte(start)
 		}
 	}
 	w.WriteComment(`
@@ -356,7 +364,7 @@ func genFormats(w *gen.CodeWriter, data *cldr.CLDR) {
 	}
 
 	// Fill the first slot with a dummy so we can identify unspecified tags.
-	formats := []number.Pattern{{}}
+	formats := []number.Format{{}}
 	patterns := map[string]int{}
 
 	// TODO: It would be possible to eliminate two of these slices by having
