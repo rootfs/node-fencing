@@ -18,4 +18,4 @@ FROM centos:7
 RUN yum install fence-agents-all -y; yum clean all
 
 # copying local scripts
-ADD fencing-scripts/* /usr/sbin
+COPY fence-scripts/* /usr/sbin/
