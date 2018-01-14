@@ -207,7 +207,9 @@ func (c *Controller) processEventNextItem() bool {
 	}
 	if !exists {
 		// Below we will warm up our cache with a Pod, so that we will see a delete for one pod
-		glog.Infof("Event %s does not exist anymore\n", key)
+
+		// TODO: we can use delete job event to clean nodefence jobs list
+		// glog.Infof("Event %s does not exist anymore\n", key)
 	} else {
 		event := obj.(*apiv1.Event)
 		// Note that you also have to check the uid if you have a local controlled resource, which
@@ -420,10 +422,10 @@ func (c *Controller) handleNodeFenceRunning(nf crdv1.NodeFence, failOnError bool
 	done := true
 	for _, jobName := range nf.Jobs {
 		jobObj, err := c.client.BatchV1().Jobs(workingNamespace).Get(jobName, metav1.GetOptions{})
-		if err != nil {
-			glog.Errorf("Failed to get job object: %s", err)
-		}
-		if !fencing.CheckJobComplition(*jobObj) {
+		if err != nil || !fencing.CheckJobComplition(*jobObj) {
+			if err != nil {
+				glog.Errorf("Failed to get job object: %s", err)
+			}
 			done = false
 			break
 		}
@@ -739,9 +741,10 @@ func (c *Controller) runFence(params map[string]string, node *apiv1.Node) (strin
 func (c *Controller) postNewJobObj(namespace string, cmd []string, name string, image string) (*batchv1.Job, error) {
 	job := new(batchv1.Job)
 	container := apiv1.Container{
-		Name:    name,
-		Image:   image,
-		Command: cmd,
+		Name:            name,
+		Image:           image,
+		Command:         cmd,
+		ImagePullPolicy: "IfNotPresent",
 	}
 
 	jobUniqueName := fmt.Sprintf("%s-%s", name, uuid.NewUUID())
