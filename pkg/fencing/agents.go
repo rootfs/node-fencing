@@ -74,7 +74,7 @@ func init() {
 		Name:              "clean-pods",
 		Desc:              "Delete all pod objects that runs on node_name",
 		Function:          runShellScriptWithNodeName,
-		ExtractParameters: runShellScriptExtractParam,
+		ExtractParameters: runCleanPodsExtractParam,
 	}
 }
 
@@ -82,6 +82,14 @@ func runShellScriptWithNodeName(params map[string]string, node *apiv1.Node) erro
 	cmd := exec.Command("/bin/sh", params["script_path"], node.Name)
 	return waitExec(cmd)
 }
+
+func runCleanPodsExtractParam(params map[string]string, node *apiv1.Node) []string {
+	var ret []string
+	ret = append(ret, fmt.Sprintf("--resource=%s", node.Name))
+	ret = append(ret, fmt.Sprintf("--namespace=%s", params["namespace"]))
+	return ret
+}
+
 func runShellScriptExtractParam(params map[string]string, node *apiv1.Node) []string {
 	var ret []string
 	ret = append(ret, "/bin/sh")

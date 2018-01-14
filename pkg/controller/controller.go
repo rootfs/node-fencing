@@ -12,12 +12,13 @@ import (
 
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
 
+	"strconv"
+
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
-
-	"strconv"
+	"k8s.io/client-go/util/workqueue"
 
 	"github.com/rootfs/node-fencing/pkg/fencing"
 	batchv1 "k8s.io/api/batch/v1"
@@ -53,11 +54,20 @@ type Controller struct {
 	crdScheme *runtime.Scheme
 	client    kubernetes.Interface
 
-	nodePVMap       map[string][]*apiv1.PersistentVolume
-	nodePVLock      *sync.Mutex
-	nodeController  cache.Controller
-	podController   cache.Controller
-	eventController cache.Controller
+	nodePVMap  map[string][]*apiv1.PersistentVolume
+	nodePVLock *sync.Mutex
+
+	eventIndexer  cache.Indexer
+	eventQueue    workqueue.RateLimitingInterface
+	eventInformer cache.Controller
+
+	nodeIndexer  cache.Indexer
+	nodeQueue    workqueue.RateLimitingInterface
+	nodeInformer cache.Controller
+
+	podIndexer  cache.Indexer
+	podQueue    workqueue.RateLimitingInterface
+	podInformer cache.Controller
 }
 
 // NewNodeFencingController initializing controller
@@ -70,97 +80,236 @@ func NewNodeFencingController(client kubernetes.Interface, crdClient *rest.RESTC
 		crdScheme:  crdScheme,
 	}
 
-	nodeListWatcher := cache.NewListWatchFromClient(
-		client.Core().RESTClient(),
-		"nodes",
-		apiv1.NamespaceAll,
-		fields.Everything())
-
-	_, nodeController := cache.NewInformer(
-		nodeListWatcher,
-		&apiv1.Node{},
-		time.Minute*60,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc:    c.onNodeAdd,
-			UpdateFunc: c.onNodeUpdate,
-			DeleteFunc: c.onNodeDelete,
+	nodeListWatcher := cache.NewListWatchFromClient(client.Core().RESTClient(), "nodes", apiv1.NamespaceAll, fields.Everything())
+	c.nodeQueue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	c.nodeIndexer, c.nodeInformer = cache.NewIndexerInformer(nodeListWatcher, &apiv1.Node{}, 0, cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			key, err := cache.MetaNamespaceKeyFunc(obj)
+			if err == nil {
+				c.nodeQueue.Add(key)
+			}
 		},
-	)
-
-	c.nodeController = nodeController
-
-	podListWatcher := cache.NewListWatchFromClient(
-		client.Core().RESTClient(),
-		"pods",
-		apiv1.NamespaceAll,
-		fields.Everything())
-
-	_, podController := cache.NewInformer(
-		podListWatcher,
-		&apiv1.Pod{},
-		time.Minute*60,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc:    c.onPodAdd,
-			UpdateFunc: c.onPodUpdate,
-			DeleteFunc: c.onPodDelete,
+		UpdateFunc: func(old interface{}, new interface{}) {
+			key, err := cache.MetaNamespaceKeyFunc(new)
+			if err == nil {
+				c.nodeQueue.Add(key)
+			}
 		},
-	)
+	}, cache.Indexers{})
 
-	c.podController = podController
-
-	eventListWatcher := cache.NewListWatchFromClient(
-		client.Core().RESTClient(),
-		"events",
-		apiv1.NamespaceAll,
-		fields.Everything())
-
-	_, eventController := cache.NewInformer(
-		eventListWatcher,
-		&apiv1.Event{},
-		time.Minute*60,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc: c.onEventAdd,
+	podListWatcher := cache.NewListWatchFromClient(client.Core().RESTClient(), "pods", apiv1.NamespaceAll, fields.Everything())
+	c.podQueue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	c.podIndexer, c.podInformer = cache.NewIndexerInformer(podListWatcher, &apiv1.Pod{}, 0, cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			key, err := cache.MetaNamespaceKeyFunc(obj)
+			if err == nil {
+				c.podQueue.Add(key)
+			}
 		},
-	)
+		UpdateFunc: func(old interface{}, new interface{}) {
+			key, err := cache.MetaNamespaceKeyFunc(new)
+			if err == nil {
+				c.podQueue.Add(key)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			// IndexerInformer uses a delta queue, therefore for deletes we have to use this
+			// key function.
+			key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+			if err == nil {
+				c.podQueue.Add(key)
+			}
+		},
+	}, cache.Indexers{})
 
-	c.eventController = eventController
+	eventListWatcher := cache.NewListWatchFromClient(client.Core().RESTClient(), "events", apiv1.NamespaceAll, fields.Everything())
+	c.eventQueue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	c.eventIndexer, c.eventInformer = cache.NewIndexerInformer(eventListWatcher, &apiv1.Event{}, 0, cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			key, err := cache.MetaNamespaceKeyFunc(obj)
+			if err == nil {
+				c.eventQueue.Add(key)
+			}
+		},
+		UpdateFunc: func(old interface{}, new interface{}) {
+			key, err := cache.MetaNamespaceKeyFunc(new)
+			if err == nil {
+				c.eventQueue.Add(key)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			// IndexerInformer uses a delta queue, therefore for deletes we have to use this
+			// key function.
+			key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+			if err == nil {
+				c.eventQueue.Add(key)
+			}
+		},
+	}, cache.Indexers{})
+
 	return c
+}
+
+func (c *Controller) runPodWorker() {
+	for c.processPodNextItem() {
+	}
+}
+
+func (c *Controller) runNodeWorker() {
+	for c.processNodeNextItem() {
+	}
+}
+
+func (c *Controller) runEventWorker() {
+	for c.processEventNextItem() {
+	}
+}
+
+func (c *Controller) processNodeNextItem() bool {
+	// Wait until there is a new item in the working queue
+	key, quit := c.nodeQueue.Get()
+	if quit {
+		return false
+	}
+	defer c.nodeQueue.Done(key)
+	obj, exists, err := c.nodeIndexer.GetByKey(key.(string))
+	if err != nil {
+		glog.Errorf("Fetching object with key %s from store failed with %v", key, err)
+		return false
+	}
+	if !exists {
+		// Below we will warm up our cache with a Pod, so that we will see a delete for one pod
+		glog.Infof("Event %s does not exist anymore\n", key)
+	} else {
+		node := obj.(*apiv1.Node)
+
+		for _, condition := range node.Status.Conditions {
+			if !c.checkReadiness(node, condition) {
+				c.createNewNodeFenceObject(node, nil)
+			}
+		}
+		c.nodeQueue.Forget(key)
+	}
+	return true
+}
+
+func (c *Controller) processEventNextItem() bool {
+	// Wait until there is a new item in the working queue
+	key, quit := c.eventQueue.Get()
+	if quit {
+		return false
+	}
+	defer c.eventQueue.Done(key)
+	obj, exists, err := c.eventIndexer.GetByKey(key.(string))
+	if err != nil {
+		glog.Errorf("Fetching object with key %s from store failed with %v", key, err)
+		return false
+	}
+	if !exists {
+		// Below we will warm up our cache with a Pod, so that we will see a delete for one pod
+
+		// TODO: we can use delete job event to clean nodefence jobs list
+		// glog.Infof("Event %s does not exist anymore\n", key)
+	} else {
+		event := obj.(*apiv1.Event)
+		// Note that you also have to check the uid if you have a local controlled resource, which
+		// is dependent on the actual instance, to detect that a Pod was recreated with the same name
+		glog.V(4).Infof("received: %v", event)
+		// only process node problem event
+		// TODO use rule based config to post fence object
+		if problem, host := c.nodeProblemEvent(event); problem {
+			glog.V(3).Infof("process node problem, node %s", host)
+			node, err := c.client.CoreV1().Nodes().Get(host, metav1.GetOptions{})
+			if err != nil {
+				glog.Errorf("Failed to get node: %s", err)
+
+				// This controller retries 5 times if something goes wrong. After that, it stops trying.
+				if c.eventQueue.NumRequeues(key) < 5 {
+					glog.Infof("Error syncing pod %v: %v", key, err)
+
+					// Re-enqueue the key rate limited. Based on the rate limiter on the
+					// queue and the re-enqueue history, the key will be processed later again.
+					c.eventQueue.AddRateLimited(key)
+					return true
+				}
+			}
+			c.createNewNodeFenceObject(node, nil)
+		}
+		c.eventQueue.Forget(key)
+	}
+	return true
+}
+
+func (c *Controller) processPodNextItem() bool {
+	// Wait until there is a new item in the working queue
+	key, quit := c.podQueue.Get()
+	if quit {
+		return false
+	}
+	// Tell the queue that we are done with processing this key. This unblocks the key for other workers
+	// This allows safe parallel processing because two pods with the same key are never processed in
+	// parallel.
+	defer c.podQueue.Done(key)
+	obj, exists, err := c.podIndexer.GetByKey(key.(string))
+	if err != nil {
+		glog.Errorf("Fetching object with key %s from store failed with %v", key, err)
+		return false
+	}
+	pod := obj.(*apiv1.Pod)
+
+	if !exists {
+		// Below we will warm up our cache with a Pod, so that we will see a delete for one pod
+		glog.Infof("Pod %s does not exist anymore\n", key)
+	} else {
+		// Note that you also have to check the uid if you have a local controlled resource, which
+		// is dependent on the actual instance, to detect that a Pod was recreated with the same name
+		if c.podHasOwner(pod) {
+			if err := c.updateNodePV(pod, true); err != nil {
+				glog.Infof("Error updating pod pv for %s\n", pod.GetName())
+
+				// This controller retries 5 times if something goes wrong. After that, it stops trying.
+				if c.podQueue.NumRequeues(key) < 5 {
+					glog.Infof("Error syncing pod %v: %v", key, err)
+
+					// Re-enqueue the key rate limited. Based on the rate limiter on the
+					// queue and the re-enqueue history, the key will be processed later again.
+					c.podQueue.AddRateLimited(key)
+					return true
+				}
+			}
+		}
+		c.podQueue.Forget(key)
+	}
+	return true
 }
 
 // Run starts watchers, start main loop and read cluster config
 func (c *Controller) Run(ctx <-chan struct{}) {
-	glog.Infof("Fence controller starting")
+	defer c.podQueue.ShutDown()
 
-	go c.podController.Run(ctx)
-	glog.Infof("Waiting for pod informer initial sync")
-	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
-		return c.podController.HasSynced(), nil
-	})
-	if !c.podController.HasSynced() {
+	glog.Infof("Fence controller starting")
+	go c.podInformer.Run(ctx)
+
+	if !cache.WaitForCacheSync(ctx, c.podInformer.HasSynced) {
 		glog.Errorf("pod informer initial sync timeout")
 		os.Exit(1)
 	}
+	go wait.Until(c.runPodWorker, time.Second, ctx)
 
-	go c.nodeController.Run(ctx)
-	glog.Infof("Waiting for node informer initial sync")
-	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
-		return c.nodeController.HasSynced(), nil
-	})
-
-	if !c.nodeController.HasSynced() {
+	go c.nodeInformer.Run(ctx)
+	if !cache.WaitForCacheSync(ctx, c.nodeInformer.HasSynced) {
 		glog.Errorf("node informer initial sync timeout")
 		os.Exit(1)
 	}
+	go wait.Until(c.runNodeWorker, time.Second, ctx)
 
-	go c.eventController.Run(ctx)
-	glog.Infof("Waiting for event informer initial sync")
-	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
-		return c.eventController.HasSynced(), nil
-	})
-	if !c.eventController.HasSynced() {
+	go c.eventInformer.Run(ctx)
+
+	if !cache.WaitForCacheSync(ctx, c.eventInformer.HasSynced) {
 		glog.Errorf("event informer initial sync timeout")
 		os.Exit(1)
 	}
+	go wait.Until(c.runEventWorker, time.Second, ctx)
 
 	// Reading fence-cluster-config - this sets roles and timeouts for controller job
 	config := fencing.GetConfigValues("fence-cluster-config", "config.properties", c.client)
@@ -247,25 +396,22 @@ func (c *Controller) handleNodeFenceNew(nf crdv1.NodeFence) {
 // in this phase we clean all related job and change nodefence status to New to retrigger
 // all jobs.
 func (c *Controller) handleNodeFenceError(nf crdv1.NodeFence) {
-	for _, jobName := range nf.Jobs {
-		err := c.client.BatchV1().Jobs(workingNamespace).Delete(jobName, &metav1.DeleteOptions{})
-		if err != nil {
-			glog.Errorf("handleNodeFenceError::Failed to delete job object: %s", err)
-			return
-		}
-	}
-
+	// TODO: before cleaning job check which node ran them and set affinity
+	c.cleanAllNodeFenceJobsList(nf)
 	glog.Infof("handleNodeFenceError::Fence handling retries for node %s failed.", nf.NodeName)
 
-	// TODO: handling retries error - in this scenerio we would want to retrigger job
+	nf.Retries = 0
+	nf.Status = crdv1.NodeFenceConditionNew
+	c.updateNodefenceObj(nf)
+}
 
-	// nf.Retries = 0
-	// nf.Status = crdv1.NodeFenceConditionNew
-	// err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-	// if err != nil {
-	// 	glog.Errorf("Failed to update nodefence status to 'new': %s", err)
-	// 	return
-	// }
+// updateNodefenceObj helper function for updating nodefence obj
+func (c *Controller) updateNodefenceObj(nf crdv1.NodeFence) {
+	err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+	if err != nil {
+		glog.Errorf("Failed to update nodefence status: %s", err)
+		return
+	}
 }
 
 // handleNodeFenceRunning this function is called when nodefence object on status Running,
@@ -276,44 +422,37 @@ func (c *Controller) handleNodeFenceRunning(nf crdv1.NodeFence, failOnError bool
 	done := true
 	for _, jobName := range nf.Jobs {
 		jobObj, err := c.client.BatchV1().Jobs(workingNamespace).Get(jobName, metav1.GetOptions{})
-		if err != nil {
-			glog.Errorf("Failed to get job object: %s", err)
-		}
-		if !fencing.CheckJobComplition(*jobObj) {
+		if err != nil || !fencing.CheckJobComplition(*jobObj) {
+			if err != nil {
+				glog.Errorf("Failed to get job object: %s", err)
+			}
 			done = false
 			break
 		}
 	}
 	if done {
 		nf.Status = crdv1.NodeFenceConditionDone
-		err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-		if err != nil {
-			glog.Errorf("Failed to update nodefence status to 'done': %s", err)
-			return
-		}
-		for _, jobName := range nf.Jobs {
-			err := c.client.BatchV1().Jobs(workingNamespace).Delete(jobName, &metav1.DeleteOptions{})
-			if err != nil {
-				glog.Errorf("Failed to delete job object: %s", err)
-				return
-			}
-		}
+		c.updateNodefenceObj(nf)
+		c.cleanAllNodeFenceJobsList(nf)
 	} else {
 		if failOnError {
 			nf.Status = crdv1.NodeFenceConditionError
-			err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-			if err != nil {
-				glog.Errorf("Failed to update nodefence status to 'error': %s", err)
-				return
-			}
+			c.updateNodefenceObj(nf)
 			// Q: clean old jobs or leave to them on fail state?
 		} else {
 			nf.Retries = nf.Retries + 1
-			err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-			if err != nil {
-				glog.Errorf("Failed to update nodefence status to 'error': %s", err)
-				return
-			}
+			c.updateNodefenceObj(nf)
+		}
+	}
+}
+
+// cleanAllNodeFenceJobsList this function goes over all jobs and delete their object
+func (c *Controller) cleanAllNodeFenceJobsList(nf crdv1.NodeFence) {
+	for _, jobName := range nf.Jobs {
+		err := c.client.BatchV1().Jobs(workingNamespace).Delete(jobName, &metav1.DeleteOptions{})
+		if err != nil {
+			glog.Errorf("Failed to delete job object: %s", err)
+			return
 		}
 	}
 }
@@ -351,11 +490,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 		nf.Status = crdv1.NodeFenceConditionNew
 		nf.Retries = 0
 		nf.Step = crdv1.NodeFenceStepRecovery
-		err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-		if err != nil {
-			glog.Errorf("Failed to update nodefence': %s", err)
-			return
-		}
+		c.updateNodefenceObj(nf)
 	} else {
 		switch nf.Step {
 		case crdv1.NodeFenceStepIsolation:
@@ -363,25 +498,10 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 			nf.Status = crdv1.NodeFenceConditionNew
 			nf.Retries = 0
 			nf.Step = crdv1.NodeFenceStepPowerManagement
-			err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-			if err != nil {
-				glog.Errorf("Failed to update nodefence': %s", err)
-				return
-			}
+			c.updateNodefenceObj(nf)
 		case crdv1.NodeFenceStepPowerManagement:
 			// TODO: treat if doesn't come back for giveup_retries
 			glog.Infof("Node %s after PM operations - waiting for status change", nf.NodeName)
-		}
-	}
-}
-
-func (c *Controller) onNodeAdd(obj interface{}) {
-	node := obj.(*apiv1.Node)
-	glog.V(4).Infof("add node: %s", node.Name)
-
-	for _, condition := range node.Status.Conditions {
-		if !c.checkReadiness(node, condition) {
-			c.createNewNodeFenceObject(node, nil)
 		}
 	}
 }
@@ -404,78 +524,8 @@ func (c *Controller) checkReadiness(node *apiv1.Node, cond apiv1.NodeCondition) 
 	return readiness
 }
 
-func (c *Controller) onNodeUpdate(oldObj, newObj interface{}) {
-	oldNode := oldObj.(*apiv1.Node)
-	newNode := newObj.(*apiv1.Node)
-	glog.V(4).Infof("update node: %s/%s", oldNode.Name, newNode.Name)
-
-	for _, newCondition := range newNode.Status.Conditions {
-		found := false
-		for _, oldCondition := range oldNode.Status.Conditions {
-			if newCondition.LastTransitionTime == oldCondition.LastTransitionTime {
-				found = true
-				break
-			}
-		}
-		if !found {
-			if !c.checkReadiness(newNode, newCondition) {
-				c.createNewNodeFenceObject(newNode, nil)
-			}
-		}
-	}
-}
-
-func (c *Controller) onNodeDelete(obj interface{}) {
-	node := obj.(*apiv1.Node)
-	glog.Infof("delete node: %s", node.Name)
-}
-
-func (c *Controller) onPodAdd(obj interface{}) {
-	pod := obj.(*apiv1.Pod)
-	glog.V(4).Infof("add pod: %s", pod.Name)
-	if c.podHasOwner(pod) {
-		c.updateNodePV(pod, true)
-	}
-}
-
-func (c *Controller) onPodUpdate(oldObj, newObj interface{}) {
-	oldPod := oldObj.(*apiv1.Pod)
-	newPod := newObj.(*apiv1.Pod)
-	glog.V(4).Infof("update pod: %s/%s", oldPod.Name, newPod.Name)
-	//FIXME: should evaluate PV status between old and new pod before update node pv map
-	if c.podHasOwner(newPod) {
-		c.updateNodePV(newPod, true)
-	}
-}
-
-func (c *Controller) onPodDelete(obj interface{}) {
-	pod := obj.(*apiv1.Pod)
-	glog.V(4).Infof("delete pod: %s", pod.Name)
-	if c.podHasOwner(pod) {
-		c.updateNodePV(pod, false)
-	}
-}
-
-func (c *Controller) onEventAdd(obj interface{}) {
-	event := obj.(*apiv1.Event)
-	glog.V(4).Infof("received: %v", event)
-	// only process node problem event
-	// TODO use rule based config to post fence object
-	if problem, host := c.nodeProblemEvent(event); problem {
-		glog.V(3).Infof("process node problem, node %s", host)
-		node, err := c.client.CoreV1().Nodes().Get(host, metav1.GetOptions{})
-		if err != nil {
-			glog.Errorf("Failed to get node: %s", err)
-		}
-		c.createNewNodeFenceObject(node, nil)
-	}
-}
-
-func (c *Controller) updateNodePV(pod *apiv1.Pod, toAdd bool) {
+func (c *Controller) updateNodePV(pod *apiv1.Pod, toAdd bool) error {
 	node := pod.Spec.NodeName
-	if len(node) == 0 {
-		return
-	}
 	podPrinted := false
 	for _, vol := range pod.Spec.Volumes {
 		if vol.VolumeSource.PersistentVolumeClaim != nil {
@@ -494,11 +544,16 @@ func (c *Controller) updateNodePV(pod *apiv1.Pod, toAdd bool) {
 					pv, err := c.client.CoreV1().PersistentVolumes().Get(pvName, metav1.GetOptions{})
 					if err == nil {
 						c.updateNodePVMap(node, pv, toAdd)
+					} else {
+						return err
 					}
 				}
+			} else {
+				return err
 			}
 		}
 	}
+	return nil
 }
 
 func (c *Controller) podHasOwner(pod *apiv1.Pod) bool {
@@ -686,9 +741,10 @@ func (c *Controller) runFence(params map[string]string, node *apiv1.Node) (strin
 func (c *Controller) postNewJobObj(namespace string, cmd []string, name string, image string) (*batchv1.Job, error) {
 	job := new(batchv1.Job)
 	container := apiv1.Container{
-		Name:    name,
-		Image:   image,
-		Command: cmd,
+		Name:            name,
+		Image:           image,
+		Command:         cmd,
+		ImagePullPolicy: "IfNotPresent",
 	}
 
 	jobUniqueName := fmt.Sprintf("%s-%s", name, uuid.NewUUID())
@@ -700,6 +756,8 @@ func (c *Controller) postNewJobObj(namespace string, cmd []string, name string, 
 			Spec: apiv1.PodSpec{
 				RestartPolicy: "Never",
 				Containers:    []apiv1.Container{container},
+				// TODO: define restrict service account for agent pod
+				ServiceAccountName: "fence-controller",
 			}},
 	}
 	job, err := c.client.BatchV1().Jobs(namespace).Create(job)
