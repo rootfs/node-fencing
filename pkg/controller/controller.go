@@ -247,25 +247,22 @@ func (c *Controller) handleNodeFenceNew(nf crdv1.NodeFence) {
 // in this phase we clean all related job and change nodefence status to New to retrigger
 // all jobs.
 func (c *Controller) handleNodeFenceError(nf crdv1.NodeFence) {
-	for _, jobName := range nf.Jobs {
-		err := c.client.BatchV1().Jobs(workingNamespace).Delete(jobName, &metav1.DeleteOptions{})
-		if err != nil {
-			glog.Errorf("handleNodeFenceError::Failed to delete job object: %s", err)
-			return
-		}
-	}
-
+	// TODO: before cleaning job check which node ran them and set affinity
+	c.cleanAllNodeFenceJobsList(nf)
 	glog.Infof("handleNodeFenceError::Fence handling retries for node %s failed.", nf.NodeName)
 
-	// TODO: handling retries error - in this scenerio we would want to retrigger job
+	nf.Retries = 0
+	nf.Status = crdv1.NodeFenceConditionNew
+	c.updateNodefenceObj(nf)
+}
 
-	// nf.Retries = 0
-	// nf.Status = crdv1.NodeFenceConditionNew
-	// err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-	// if err != nil {
-	// 	glog.Errorf("Failed to update nodefence status to 'new': %s", err)
-	// 	return
-	// }
+// updateNodefenceObj helper function for updating nodefence obj
+func (c *Controller) updateNodefenceObj(nf crdv1.NodeFence) {
+	err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
+	if err != nil {
+		glog.Errorf("Failed to update nodefence status: %s", err)
+		return
+	}
 }
 
 // handleNodeFenceRunning this function is called when nodefence object on status Running,
@@ -286,34 +283,27 @@ func (c *Controller) handleNodeFenceRunning(nf crdv1.NodeFence, failOnError bool
 	}
 	if done {
 		nf.Status = crdv1.NodeFenceConditionDone
-		err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-		if err != nil {
-			glog.Errorf("Failed to update nodefence status to 'done': %s", err)
-			return
-		}
-		for _, jobName := range nf.Jobs {
-			err := c.client.BatchV1().Jobs(workingNamespace).Delete(jobName, &metav1.DeleteOptions{})
-			if err != nil {
-				glog.Errorf("Failed to delete job object: %s", err)
-				return
-			}
-		}
+		c.updateNodefenceObj(nf)
+		c.cleanAllNodeFenceJobsList(nf)
 	} else {
 		if failOnError {
 			nf.Status = crdv1.NodeFenceConditionError
-			err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-			if err != nil {
-				glog.Errorf("Failed to update nodefence status to 'error': %s", err)
-				return
-			}
+			c.updateNodefenceObj(nf)
 			// Q: clean old jobs or leave to them on fail state?
 		} else {
 			nf.Retries = nf.Retries + 1
-			err := c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-			if err != nil {
-				glog.Errorf("Failed to update nodefence status to 'error': %s", err)
-				return
-			}
+			c.updateNodefenceObj(nf)
+		}
+	}
+}
+
+// cleanAllNodeFenceJobsList this function goes over all jobs and delete their object
+func (c *Controller) cleanAllNodeFenceJobsList(nf crdv1.NodeFence) {
+	for _, jobName := range nf.Jobs {
+		err := c.client.BatchV1().Jobs(workingNamespace).Delete(jobName, &metav1.DeleteOptions{})
+		if err != nil {
+			glog.Errorf("Failed to delete job object: %s", err)
+			return
 		}
 	}
 }
@@ -351,11 +341,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 		nf.Status = crdv1.NodeFenceConditionNew
 		nf.Retries = 0
 		nf.Step = crdv1.NodeFenceStepRecovery
-		err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-		if err != nil {
-			glog.Errorf("Failed to update nodefence': %s", err)
-			return
-		}
+		c.updateNodefenceObj(nf)
 	} else {
 		switch nf.Step {
 		case crdv1.NodeFenceStepIsolation:
@@ -363,11 +349,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 			nf.Status = crdv1.NodeFenceConditionNew
 			nf.Retries = 0
 			nf.Step = crdv1.NodeFenceStepPowerManagement
-			err = c.crdClient.Put().Resource(crdv1.NodeFenceResourcePlural).Name(nf.Metadata.Name).Body(&nf).Do().Into(&nf)
-			if err != nil {
-				glog.Errorf("Failed to update nodefence': %s", err)
-				return
-			}
+			c.updateNodefenceObj(nf)
 		case crdv1.NodeFenceStepPowerManagement:
 			// TODO: treat if doesn't come back for giveup_retries
 			glog.Infof("Node %s after PM operations - waiting for status change", nf.NodeName)
