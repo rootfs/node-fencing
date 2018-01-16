@@ -38,7 +38,6 @@ type Agent struct {
 	Desc              string
 	ExecutablePath    string
 	Parameters        map[string]AgentParameter
-	Function          func(params map[string]string, node *apiv1.Node) error
 	ExtractParameters func(params map[string]string, node *apiv1.Node) []string
 }
 
@@ -70,37 +69,26 @@ func init() {
 	Agents["ssh"] = Agent{
 		Name:              "ssh",
 		Desc:              "Agent login to host via ssh and restart kubelet - requires copy-id first to allow root login",
-		Function:          sshFenceAgentFunc,
 		ExtractParameters: sshFenceAgentExtractParams,
-	}
-	Agents["fence_apc_snmp"] = Agent{
-		Name:              "fence_apc_snmp",
-		Desc:              "Fence agent for APC, Tripplite PDU over SNMP",
-		Function:          apcSNMPAgentFunc,
-		ExtractParameters: apcSNMPAgentExtractParams,
 	}
 	Agents["gcloud-reset-inst"] = Agent{
 		Name:              "google-cloud",
 		Desc:              "Reboot instance in GCE cluster",
-		Function:          gceAgentFunc,
 		ExtractParameters: gceAgentFuncExtractParam,
 	}
 	Agents["cordon"] = Agent{
 		Name:              "cordon",
 		Desc:              "Stop scheduler from using resources on node",
-		Function:          runShellScriptWithNodeName,
 		ExtractParameters: runShellScriptExtractParam,
 	}
 	Agents["uncordon"] = Agent{
 		Name:              "uncordon",
 		Desc:              "Remove cordon from node",
-		Function:          runShellScriptWithNodeName,
 		ExtractParameters: runShellScriptExtractParam,
 	}
 	Agents["clean-pods"] = Agent{
 		Name:              "clean-pods",
 		Desc:              "Delete all pod objects that runs on node_name",
-		Function:          runShellScriptWithNodeName,
 		ExtractParameters: runCleanPodsExtractParam,
 	}
 }
