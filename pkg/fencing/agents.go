@@ -36,6 +36,7 @@ type AgentParameter struct {
 type Agent struct {
 	Name              string
 	Desc              string
+	ExecutablePath    string
 	Parameters        map[string]AgentParameter
 	Function          func(params map[string]string, node *apiv1.Node) error
 	ExtractParameters func(params map[string]string, node *apiv1.Node) []string
@@ -65,7 +66,7 @@ func init() {
 		glog.Warningf("Can't load fence agents from given path")
 	}
 
-	// For now - we explicitly define Agent structure for each script under fence-scripts folder
+	// Explicitly define some agents (going to be removed soon)
 	Agents["ssh"] = Agent{
 		Name:              "ssh",
 		Desc:              "Agent login to host via ssh and restart kubelet - requires copy-id first to allow root login",
@@ -239,7 +240,9 @@ func fenceAgentExtractXML(agentPath string, addDeprecatedOptions bool) (Agent, e
 	resultAgent := Agent{}
 	resultAgent.Name = xmlParameters.AgentName
 	resultAgent.Desc = xmlParameters.AgentDescription
+	resultAgent.ExecutablePath = agentPath
 	resultAgent.Parameters = make(map[string]AgentParameter)
+	resultAgent.ExtractParameters = fenceAgentExtractParams
 
 	for _, parameter := range xmlParameters.Parameters {
 		deprecated := parameter.Deprecated != 0
@@ -303,4 +306,79 @@ func fenceAgentExtractXMLFromMatchPath(matchPath string, addDeprecatedOptions bo
 	}
 
 	return nil
+}
+
+func genceAgentParseBoolString(s string) (bool, error) {
+	var res bool
+
+	if strings.EqualFold(s, "on") || strings.EqualFold(s, "yes") ||
+		strings.EqualFold(s, "true") || strings.EqualFold(s, "1") {
+		res = true
+	} else if strings.EqualFold(s, "off") || strings.EqualFold(s, "no") ||
+		strings.EqualFold(s, "false") || strings.EqualFold(s, "0") {
+		res = false
+	} else {
+		return false, fmt.Errorf("Unknown boolean value %s", s)
+	}
+
+	return res, nil
+}
+
+/*
+ * TODO: Change definition to return error
+ *       Check all required parameters are entered
+ */
+func fenceAgentExtractParams(params map[string]string, _ *apiv1.Node) []string {
+	var ret []string
+
+	if _, exists := params["agent_name"]; !exists {
+		glog.Errorf("Agent name is not set in the parameters")
+
+		return ret
+	}
+
+	agentName := params["agent_name"]
+
+	if _, exists := Agents[agentName]; !exists {
+		glog.Errorf("Agent with name %s doesn't exists", agentName)
+
+		return ret
+	}
+
+	agent := Agents[agentName]
+
+	ret = append(ret, agent.ExecutablePath)
+
+	for paramName, paramValue := range params {
+		if paramName == "agent_name" {
+			continue
+		}
+
+		if _, exists := agent.Parameters[paramName]; !exists {
+			glog.Warningf("Passing unknown parameter %s to agent %s. Parameter ignored",
+				paramName, agentName)
+			continue
+		}
+
+		agentParameter := agent.Parameters[paramName]
+
+		switch agentParameter.ParameterType {
+		case agentParameterTypeString:
+			ret = append(ret, fmt.Sprintf("--%s=%s", paramName, paramValue))
+		case agentParameterTypeInteger:
+			ret = append(ret, fmt.Sprintf("--%s=%s", paramName, paramValue))
+		case agentParameterTypeBoolean:
+			appendParameter, err := genceAgentParseBoolString(paramValue)
+			if err != nil {
+				glog.Warning(err)
+				return []string{}
+			}
+
+			if appendParameter {
+				ret = append(ret, fmt.Sprintf("--%s", paramName))
+			}
+		}
+	}
+
+	return ret
 }
