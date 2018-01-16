@@ -1,17 +1,42 @@
 package fencing
 
 import (
+	"encoding/xml"
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/golang/glog"
 	apiv1 "k8s.io/api/core/v1"
 )
 
+type agentParameterType int
+
+const (
+	agentParameterTypeBoolean agentParameterType = iota
+	agentParameterTypeString
+	agentParameterTypeInteger
+)
+
+type AgentParameter struct {
+	// Parameter is required
+	Required bool
+	/*
+	 * Parameter is deprecated by parameter with name DeprecatedBy.
+	 * Parameter with name DeprecatedBy has Obsoletes filled to current parameter name
+	 */
+	Deprecated    bool
+	DeprecatedBy  string
+	Obsoletes     string
+	ParameterType agentParameterType
+}
+
 // Agent defined the name, description and function for specific fence function
 type Agent struct {
 	Name              string
 	Desc              string
+	Parameters        map[string]AgentParameter
 	Function          func(params map[string]string, node *apiv1.Node) error
 	ExtractParameters func(params map[string]string, node *apiv1.Node) []string
 }
@@ -36,8 +61,9 @@ func init() {
 	// Register agents
 	// For each agent_name we define description and function pointer for the execution logic
 
-	// TODO: make dynamic load from folder /usr/libexec/fence-agents
-	// filename will be the key, and function only executes the scripts with parameters from the the configmaps
+	if fenceAgentExtractXMLFromMatchPath("/usr/sbin/fence_*", true, Agents) != nil {
+		glog.Warningf("Can't load fence agents from given path")
+	}
 
 	// For now - we explicitly define Agent structure for each script under fence-scripts folder
 	Agents["ssh"] = Agent{
@@ -163,4 +189,118 @@ func apcSNMPAgentExtractParams(params map[string]string, _ *apiv1.Node) []string
 	ret = append(ret, fmt.Sprintf("--plug=%s", params["plug"]))
 	ret = append(ret, fmt.Sprintf("--action=%s", params["action"]))
 	return ret
+}
+
+func fenceAgentGetXML(agentPath string) ([]byte, error) {
+	cmd := exec.Command(agentPath, "--action", "metadata")
+
+	return cmd.CombinedOutput()
+}
+
+/*
+ * Parse clusterlabs fencing agent XML get by running fenceAgentGetXML.
+ * If addDeprecatedOptions is set, deprecated options are added into result Agent structure.
+ * Number of parameter types is (for now) reduced to boolean (no parameter value required),
+ * integer (ether "integer" or "second" type) and string (all other types including "select")
+ */
+func fenceAgentExtractXML(agentPath string, addDeprecatedOptions bool) (Agent, error) {
+	type fenceAgentXMLParameterContent struct {
+		Type         string `xml:"type,attr"`
+		DefaultValue string `xml:"default,attr"`
+	}
+
+	type fenceAgentXMLParameter struct {
+		Name       string                        `xml:"name,attr"`
+		Required   int                           `xml:"required,attr"`
+		Deprecated int                           `xml:"deprecated,attr"`
+		Obsoletes  string                        `xml:"obsoletes,attr"`
+		Content    fenceAgentXMLParameterContent `xml:"content"`
+	}
+
+	type resourceAgentXMLParameters struct {
+		XMLName          xml.Name                 `xml:"resource-agent"`
+		AgentName        string                   `xml:"name,attr"`
+		AgentDescription string                   `xml:"shortdesc,attr"`
+		Parameters       []fenceAgentXMLParameter `xml:"parameters>parameter"`
+	}
+
+	agentXML, err := fenceAgentGetXML(agentPath)
+	if err != nil {
+		return Agent{}, err
+	}
+
+	xmlParameters := resourceAgentXMLParameters{}
+
+	err = xml.Unmarshal(agentXML, &xmlParameters)
+	if err != nil {
+		return Agent{}, err
+	}
+
+	resultAgent := Agent{}
+	resultAgent.Name = xmlParameters.AgentName
+	resultAgent.Desc = xmlParameters.AgentDescription
+	resultAgent.Parameters = make(map[string]AgentParameter)
+
+	for _, parameter := range xmlParameters.Parameters {
+		deprecated := parameter.Deprecated != 0
+
+		if deprecated && !addDeprecatedOptions {
+			continue
+		}
+
+		parameterName := strings.Replace(parameter.Name, "_", "-", -1)
+
+		resultAgentParameter := AgentParameter{}
+		resultAgentParameter.Required = (parameter.Required != 0)
+		resultAgentParameter.Deprecated = deprecated
+
+		obsoletes := strings.Replace(parameter.Obsoletes, "_", "-", -1)
+		resultAgentParameter.Obsoletes = obsoletes
+
+		switch parameter.Content.Type {
+		case "string":
+			resultAgentParameter.ParameterType = agentParameterTypeString
+		case "select":
+			resultAgentParameter.ParameterType = agentParameterTypeString
+		case "integer":
+			resultAgentParameter.ParameterType = agentParameterTypeInteger
+		case "second":
+			resultAgentParameter.ParameterType = agentParameterTypeInteger
+		case "boolean":
+			resultAgentParameter.ParameterType = agentParameterTypeBoolean
+		default:
+			resultAgentParameter.ParameterType = agentParameterTypeString
+		}
+
+		resultAgent.Parameters[parameterName] = resultAgentParameter
+	}
+
+	for parameterName, parameter := range resultAgent.Parameters {
+		if parameter.Obsoletes != "" {
+			obsoleted := resultAgent.Parameters[parameter.Obsoletes]
+			obsoleted.DeprecatedBy = parameterName
+			resultAgent.Parameters[parameter.Obsoletes] = obsoleted
+		}
+	}
+
+	return resultAgent, nil
+}
+
+func fenceAgentExtractXMLFromMatchPath(matchPath string, addDeprecatedOptions bool, agents map[string]Agent) error {
+	agentFiles, err := filepath.Glob(matchPath)
+	if err != nil {
+		return err
+	}
+
+	for _, agentFile := range agentFiles {
+		glog.Infof("Extracting XML for agent %s", agentFile)
+
+		resultAgent, err := fenceAgentExtractXML(agentFile, addDeprecatedOptions)
+		if err != nil {
+			glog.Warningf("Can't parse agent %s XML", agentFile)
+		}
+		agents[resultAgent.Name] = resultAgent
+	}
+
+	return nil
 }
