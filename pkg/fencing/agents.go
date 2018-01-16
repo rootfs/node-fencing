@@ -296,7 +296,7 @@ func fenceAgentExtractXMLFromMatchPath(matchPath string, addDeprecatedOptions bo
 	return nil
 }
 
-func genceAgentParseBoolString(s string) (bool, error) {
+func fenceAgentParseBoolString(s string) (bool, error) {
 	var res bool
 
 	if strings.EqualFold(s, "on") || strings.EqualFold(s, "yes") ||
@@ -356,7 +356,7 @@ func fenceAgentExtractParams(params map[string]string, _ *apiv1.Node) []string {
 		case agentParameterTypeInteger:
 			ret = append(ret, fmt.Sprintf("--%s=%s", paramName, paramValue))
 		case agentParameterTypeBoolean:
-			appendParameter, err := genceAgentParseBoolString(paramValue)
+			appendParameter, err := fenceAgentParseBoolString(paramValue)
 			if err != nil {
 				glog.Warning(err)
 				return []string{}
