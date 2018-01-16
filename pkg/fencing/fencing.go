@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	crdv1 "github.com/rootfs/node-fencing/pkg/apis/crd/v1"
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -31,15 +30,4 @@ func GetNodeFenceConfig(nodeName string, c kubernetes.Interface) (crdv1.NodeFenc
 func GetMethodParams(nodeName string, methodName string, c kubernetes.Interface) map[string]string {
 	methodFullName := "fence-method-" + methodName + "-" + nodeName
 	return GetConfigValues(methodFullName, "method.properties", c)
-}
-
-// CheckJobComplition helper func to check job condition field, if one
-// condition status type is JobComplete return true
-func CheckJobComplition(job batchv1.Job) bool {
-	for _, cond := range job.Status.Conditions {
-		if cond.Type == batchv1.JobComplete {
-			return true
-		}
-	}
-	return false
 }
