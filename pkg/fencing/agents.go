@@ -226,7 +226,10 @@ func fenceAgentExtractXML(agentPath string, addDeprecatedOptions bool) (Agent, e
 	}
 
 	resultAgent := Agent{}
-	resultAgent.Name = xmlParameters.AgentName
+
+	agentName := strings.Replace(xmlParameters.AgentName, "_", "-", -1)
+
+	resultAgent.Name = agentName
 	resultAgent.Desc = xmlParameters.AgentDescription
 	resultAgent.ExecutablePath = agentPath
 	resultAgent.Parameters = make(map[string]AgentParameter)
