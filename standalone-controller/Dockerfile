@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM centos:7
+FROM docker.io/bronhaim/agent-image
 
 ADD _output/bin/node-fencing-controller /
 
