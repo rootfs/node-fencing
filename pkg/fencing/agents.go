@@ -98,12 +98,12 @@ func fenceAgentGetXML(agentPath string) ([]byte, error) {
 }
 
 /*
- * Parse clusterlabs fencing agent XML get by running fenceAgentGetXML.
+ * Parse clusterlabs fencing agent XML stored in agentXML.
  * If addDeprecatedOptions is set, deprecated options are added into result Agent structure.
  * Number of parameter types is (for now) reduced to boolean (no parameter value required),
  * integer (ether "integer" or "second" type) and string (all other types including "select")
  */
-func fenceAgentExtractXML(agentPath string, addDeprecatedOptions bool) (Agent, error) {
+func fenceAgentParseXML(agentPath string, agentXML []byte, addDeprecatedOptions bool) (Agent, error) {
 	type fenceAgentXMLParameterContent struct {
 		Type         string `xml:"type,attr"`
 		DefaultValue string `xml:"default,attr"`
@@ -124,14 +124,9 @@ func fenceAgentExtractXML(agentPath string, addDeprecatedOptions bool) (Agent, e
 		Parameters       []fenceAgentXMLParameter `xml:"parameters>parameter"`
 	}
 
-	agentXML, err := fenceAgentGetXML(agentPath)
-	if err != nil {
-		return Agent{}, err
-	}
-
 	xmlParameters := resourceAgentXMLParameters{}
 
-	err = xml.Unmarshal(agentXML, &xmlParameters)
+	err := xml.Unmarshal(agentXML, &xmlParameters)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -189,6 +184,21 @@ func fenceAgentExtractXML(agentPath string, addDeprecatedOptions bool) (Agent, e
 	}
 
 	return resultAgent, nil
+}
+
+/*
+ * Parse clusterlabs fencing agent XML get by running fenceAgentGetXML.
+ * If addDeprecatedOptions is set, deprecated options are added into result Agent structure.
+ * Number of parameter types is (for now) reduced to boolean (no parameter value required),
+ * integer (ether "integer" or "second" type) and string (all other types including "select")
+ */
+func fenceAgentExtractXML(agentPath string, addDeprecatedOptions bool) (Agent, error) {
+	agentXML, err := fenceAgentGetXML(agentPath)
+	if err != nil {
+		return Agent{}, err
+	}
+
+	return fenceAgentParseXML(agentPath, agentXML, addDeprecatedOptions)
 }
 
 func fenceAgentExtractXMLFromMatchPath(matchPath string, addDeprecatedOptions bool, agents map[string]Agent) error {
