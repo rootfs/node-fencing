@@ -249,31 +249,20 @@ func (c *Controller) processPodNextItem() bool {
 		glog.Infof("pod-event-update: Pod %s does not exist anymore\n", key)
 	} else {
 		pod := obj.(*apiv1.Pod)
-		glog.Infof("Update for %s\n", pod.Name)
-		// Check if related to Fence
-		if strings.Split(pod.Name, "-")[0] == "fence" {
-			glog.Infof("Pod %s related to fence\n", pod.Name)
-			if pod.Status.Phase == "Succeeded" {
-			}
-			glog.Infof("pod-event-update: Fence pod %s is done and can be removed\n", pod.Name)
+		// Note that you also have to check the uid if you have a local controlled resource, which
+		// is dependent on the actual instance, to detect that a Pod was recreated with the same name
+		if c.podHasOwner(pod) {
+			if err := c.updateNodePV(pod, true); err != nil {
+				glog.Infof("Error updating pod pv for %s\n", pod.GetName())
 
-			// for any other pods - save pv list for later storage fence options
-		} else {
-			// Note that you also have to check the uid if you have a local controlled resource, which
-			// is dependent on the actual instance, to detect that a Pod was recreated with the same name
-			if c.podHasOwner(pod) {
-				if err := c.updateNodePV(pod, true); err != nil {
-					glog.Infof("Error updating pod pv for %s\n", pod.GetName())
+				// This controller retries 5 times if something goes wrong. After that, it stops trying.
+				if c.podQueue.NumRequeues(key) < 5 {
+					glog.Infof("Error syncing pod %v: %v", key, err)
 
-					// This controller retries 5 times if something goes wrong. After that, it stops trying.
-					if c.podQueue.NumRequeues(key) < 5 {
-						glog.Infof("Error syncing pod %v: %v", key, err)
-
-						// Re-enqueue the key rate limited. Based on the rate limiter on the
-						// queue and the re-enqueue history, the key will be processed later again.
-						c.podQueue.AddRateLimited(key)
-						return true
-					}
+					// Re-enqueue the key rate limited. Based on the rate limiter on the
+					// queue and the re-enqueue history, the key will be processed later again.
+					c.podQueue.AddRateLimited(key)
+					return true
 				}
 			}
 		}
@@ -284,8 +273,6 @@ func (c *Controller) processPodNextItem() bool {
 
 // Run starts watchers, start main loop and read cluster config
 func (c *Controller) Run(ctx <-chan struct{}) {
-	defer c.podQueue.ShutDown()
-
 	glog.Infof("Fence controller starting")
 	go c.podInformer.Run(ctx)
 
@@ -510,7 +497,30 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 			c.updateNodefenceObj(nf)
 		case crdv1.NodeFenceStepPowerManagement:
 			// TODO: treat if doesn't come back for giveup_retries
+			c.cleanResource(nf.NodeName)
 			glog.Infof("Node %s after PM operations - waiting for status change", nf.NodeName)
+		}
+	}
+}
+
+func (c *Controller) cleanResource(nodeName string) {
+	pods, err := c.client.CoreV1().Pods(workingNamespace).List(metav1.ListOptions{})
+	if err != nil {
+		glog.Error(err)
+	}
+	for _, pod := range pods.Items {
+		pod, err := c.client.CoreV1().Pods(workingNamespace).Get(pod.Name, metav1.GetOptions{})
+		if err != nil {
+			glog.Error(err)
+		}
+		if pod.Spec.NodeName == nodeName {
+			var gracePriod int64
+			gracePriod = 0
+			err := c.client.CoreV1().Pods(workingNamespace).Delete(pod.Name, &metav1.DeleteOptions{GracePeriodSeconds: &gracePriod})
+			if err != nil {
+				glog.Error(err)
+			}
+			glog.Infof("Releasing %s", pod.Name)
 		}
 	}
 }
@@ -569,7 +579,7 @@ func (c *Controller) podHasOwner(pod *apiv1.Pod) bool {
 	if len(pod.OwnerReferences) != 0 {
 		for _, owner := range pod.OwnerReferences {
 			if owner.BlockOwnerDeletion != nil {
-				glog.Infof("pod %s has owner %s %s", pod.Name, owner.Kind, owner.Name)
+				//glog.Infof("pod %s has owner %s %s", pod.Name, owner.Kind, owner.Name)
 				return true
 			}
 		}

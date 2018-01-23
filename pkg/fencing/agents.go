@@ -65,44 +65,22 @@ func init() {
 		glog.Warningf("Can't load fence agents from given path")
 	}
 
-	// Explicitly define some agents (going to be removed soon)
-	Agents["ssh"] = Agent{
-		Name:              "ssh",
-		Desc:              "Agent login to host via ssh and restart kubelet - requires copy-id first to allow root login",
-		ExtractParameters: sshFenceAgentExtractParams,
-	}
-	Agents["gcloud-reset-inst"] = Agent{
-		Name:              "google-cloud",
-		Desc:              "Reboot instance in GCE cluster",
-		ExtractParameters: gceAgentFuncExtractParam,
-	}
-	Agents["cordon"] = Agent{
-		Name:              "cordon",
-		Desc:              "Stop scheduler from using resources on node",
+	// Explicitly defined sample agents for testing
+	Agents["agent1"] = Agent{
+		Name:              "agent1",
+		Desc:              "sample agent1",
 		ExtractParameters: runShellScriptExtractParam,
 	}
-	Agents["uncordon"] = Agent{
-		Name:              "uncordon",
-		Desc:              "Remove cordon from node",
+	Agents["agent2"] = Agent{
+		Name:              "agent2",
+		Desc:              "sample agent2",
 		ExtractParameters: runShellScriptExtractParam,
 	}
-	Agents["clean-pods"] = Agent{
-		Name:              "clean-pods",
-		Desc:              "Delete all pod objects that runs on node_name",
-		ExtractParameters: runCleanPodsExtractParam,
+	Agents["agent3"] = Agent{
+		Name:              "agent3",
+		Desc:              "sample agent3",
+		ExtractParameters: runShellScriptExtractParam,
 	}
-}
-
-func runShellScriptWithNodeName(params map[string]string, node *apiv1.Node) error {
-	cmd := exec.Command("/bin/sh", params["script_path"], node.Name)
-	return waitExec(cmd)
-}
-
-func runCleanPodsExtractParam(params map[string]string, node *apiv1.Node) []string {
-	var ret []string
-	ret = append(ret, fmt.Sprintf("--resource=%s", node.Name))
-	ret = append(ret, fmt.Sprintf("--namespace=%s", params["namespace"]))
-	return ret
 }
 
 func runShellScriptExtractParam(params map[string]string, node *apiv1.Node) []string {
@@ -110,73 +88,6 @@ func runShellScriptExtractParam(params map[string]string, node *apiv1.Node) []st
 	ret = append(ret, "/bin/sh")
 	ret = append(ret, params["script_path"])
 	ret = append(ret, node.Name)
-	return ret
-}
-
-func gceAgentFunc(params map[string]string, node *apiv1.Node) error {
-	// can use reflect here and pass extractParam string list to command
-	cmd := exec.Command("/usr/bin/python",
-		"fence-scripts/k8s_gce_reboot_instance.py",
-		node.Name)
-	return waitExec(cmd)
-}
-func gceAgentFuncExtractParam(params map[string]string, node *apiv1.Node) []string {
-	var ret []string
-	ret = append(ret, "/usr/bin/python")
-	ret = append(ret, "/usr/sbin/k8s_gce_reboot_instance.sh")
-	ret = append(ret, node.Name)
-	return ret
-}
-
-func waitExec(cmd *exec.Cmd) error {
-	WaitTimeout(cmd, 3000)
-	output, err := cmd.CombinedOutput()
-	glog.Infof("Agent output: %s", string(output))
-	return err
-}
-
-func sshFenceAgentFunc(params map[string]string, node *apiv1.Node) error {
-	add := node.Status.Addresses[0].Address
-	cmd := exec.Command("/bin/sh", "fence-scripts/k8s_ssh_fence.sh", add)
-	return waitExec(cmd)
-}
-
-func sshFenceAgentExtractParams(params map[string]string, node *apiv1.Node) []string {
-	var ret []string
-	ret = append(ret, "/bin/sh")
-	ret = append(ret, "/usr/sbin/k8s_ssh_fence.sh")
-	ret = append(ret, node.Status.Addresses[0].Address)
-	return ret
-}
-
-func apcSNMPAgentFunc(params map[string]string, _ *apiv1.Node) error {
-	ip := fmt.Sprintf("--ip=%s", params["address"])
-	username := fmt.Sprintf("--username=%s", params["username"])
-	password := fmt.Sprintf("--password=%s", params["password"])
-	plug := fmt.Sprintf("--plug=%s", params["plug"])
-	action := fmt.Sprintf("--action=%s", params["action"])
-
-	cmd := exec.Command(
-		"/usr/bin/python",
-		"/usr/sbin/fence_apc_snmp",
-		ip,
-		password,
-		username,
-		plug,
-		action,
-	)
-	return waitExec(cmd)
-}
-
-func apcSNMPAgentExtractParams(params map[string]string, _ *apiv1.Node) []string {
-	var ret []string
-	ret = append(ret, "/usr/bin/python")
-	ret = append(ret, "/usr/sbin/fence_apc_snmp")
-	ret = append(ret, fmt.Sprintf("--ip=%s", params["address"]))
-	ret = append(ret, fmt.Sprintf("--username=%s", params["username"]))
-	ret = append(ret, fmt.Sprintf("--password=%s", params["password"]))
-	ret = append(ret, fmt.Sprintf("--plug=%s", params["plug"]))
-	ret = append(ret, fmt.Sprintf("--action=%s", params["action"]))
 	return ret
 }
 
