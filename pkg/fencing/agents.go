@@ -22,13 +22,6 @@ const (
 type AgentParameter struct {
 	// Parameter is required
 	Required bool
-	/*
-	 * Parameter is deprecated by parameter with name DeprecatedBy.
-	 * Parameter with name DeprecatedBy has Obsoletes filled to current parameter name
-	 */
-	Deprecated    bool
-	DeprecatedBy  string
-	Obsoletes     string
 	ParameterType agentParameterType
 }
 
@@ -61,7 +54,7 @@ func init() {
 	// Register agents
 	// For each agent_name we define description and function pointer for the execution logic
 
-	if fenceAgentExtractXMLFromMatchPath("/usr/sbin/fence_*", true, Agents) != nil {
+	if fenceAgentExtractXMLFromMatchPath("/usr/sbin/fence_*", Agents) != nil {
 		glog.Warningf("Can't load fence agents from given path")
 	}
 
@@ -99,11 +92,10 @@ func fenceAgentGetXML(agentPath string) ([]byte, error) {
 
 /*
  * Parse clusterlabs fencing agent XML stored in agentXML.
- * If addDeprecatedOptions is set, deprecated options are added into result Agent structure.
  * Number of parameter types is (for now) reduced to boolean (no parameter value required),
  * integer (ether "integer" or "second" type) and string (all other types including "select")
  */
-func fenceAgentParseXML(agentPath string, agentXML []byte, addDeprecatedOptions bool) (Agent, error) {
+func fenceAgentParseXML(agentPath string, agentXML []byte) (Agent, error) {
 	type fenceAgentXMLParameterContent struct {
 		Type         string `xml:"type,attr"`
 		DefaultValue string `xml:"default,attr"`
@@ -144,7 +136,7 @@ func fenceAgentParseXML(agentPath string, agentXML []byte, addDeprecatedOptions 
 	for _, parameter := range xmlParameters.Parameters {
 		deprecated := parameter.Deprecated != 0
 
-		if deprecated && !addDeprecatedOptions {
+		if deprecated {
 			continue
 		}
 
@@ -152,10 +144,6 @@ func fenceAgentParseXML(agentPath string, agentXML []byte, addDeprecatedOptions 
 
 		resultAgentParameter := AgentParameter{}
 		resultAgentParameter.Required = (parameter.Required != 0)
-		resultAgentParameter.Deprecated = deprecated
-
-		obsoletes := strings.Replace(parameter.Obsoletes, "_", "-", -1)
-		resultAgentParameter.Obsoletes = obsoletes
 
 		switch parameter.Content.Type {
 		case "string":
@@ -175,33 +163,24 @@ func fenceAgentParseXML(agentPath string, agentXML []byte, addDeprecatedOptions 
 		resultAgent.Parameters[parameterName] = resultAgentParameter
 	}
 
-	for parameterName, parameter := range resultAgent.Parameters {
-		if parameter.Obsoletes != "" {
-			obsoleted := resultAgent.Parameters[parameter.Obsoletes]
-			obsoleted.DeprecatedBy = parameterName
-			resultAgent.Parameters[parameter.Obsoletes] = obsoleted
-		}
-	}
-
 	return resultAgent, nil
 }
 
 /*
  * Parse clusterlabs fencing agent XML get by running fenceAgentGetXML.
- * If addDeprecatedOptions is set, deprecated options are added into result Agent structure.
  * Number of parameter types is (for now) reduced to boolean (no parameter value required),
  * integer (ether "integer" or "second" type) and string (all other types including "select")
  */
-func fenceAgentExtractXML(agentPath string, addDeprecatedOptions bool) (Agent, error) {
+func fenceAgentExtractXML(agentPath string) (Agent, error) {
 	agentXML, err := fenceAgentGetXML(agentPath)
 	if err != nil {
 		return Agent{}, err
 	}
 
-	return fenceAgentParseXML(agentPath, agentXML, addDeprecatedOptions)
+	return fenceAgentParseXML(agentPath, agentXML)
 }
 
-func fenceAgentExtractXMLFromMatchPath(matchPath string, addDeprecatedOptions bool, agents map[string]Agent) error {
+func fenceAgentExtractXMLFromMatchPath(matchPath string, agents map[string]Agent) error {
 	agentFiles, err := filepath.Glob(matchPath)
 	if err != nil {
 		return err
@@ -210,7 +189,7 @@ func fenceAgentExtractXMLFromMatchPath(matchPath string, addDeprecatedOptions bo
 	for _, agentFile := range agentFiles {
 		glog.Infof("Extracting XML for agent %s", agentFile)
 
-		resultAgent, err := fenceAgentExtractXML(agentFile, addDeprecatedOptions)
+		resultAgent, err := fenceAgentExtractXML(agentFile)
 		if err != nil {
 			glog.Warningf("Can't parse agent %s XML", agentFile)
 		}
