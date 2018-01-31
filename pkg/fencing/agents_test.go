@@ -1,6 +1,7 @@
 package fencing
 
 import (
+	"flag"
 	"reflect"
 	"testing"
 )
@@ -357,11 +358,17 @@ func parameterMatch(agent Agent, param string, expectedParam AgentParameter, t *
 	}
 
 	if !reflect.DeepEqual(agent.Parameters[param], expectedParam) {
-		t.Error(agent.Parameters[param], "!=", expectedParam)
+		t.Error(param, ": given", agent.Parameters[param], "!= expected", expectedParam)
 	}
 }
 
-func TestFenceAgentParseXML(t *testing.T) {
+func TestFenceAgentParseXMLCOS74(t *testing.T) {
+	/*
+	 * Allow glog log to stderr
+	 */
+	flag.Set("logtostderr", "true")
+	flag.Parse()
+
 	execPath := "/usr/sbin/fence_rhevm"
 
 	agent, err := fenceAgentParseXML(execPath, []byte(fenceRhevmXMLMetadataCOS74))
@@ -373,10 +380,44 @@ func TestFenceAgentParseXML(t *testing.T) {
 		strMatch(agent.Name, "fence-rhevm", t)
 
 		parameterMatch(agent, "ipport", AgentParameter{ParameterType: agentParameterTypeInteger}, t)
+		parameterMatch(agent, "plug", AgentParameter{Required: true, ParameterType: agentParameterTypeString}, t)
+		parameterMatch(agent, "ssl-secure", AgentParameter{ParameterType: agentParameterTypeBoolean}, t)
 		if _, exists := agent.Parameters["port"]; exists {
 			t.Error("Parameter port exists but it shouldn't")
 		}
+		parameterMatch(agent, "ip", AgentParameter{Required: true, ParameterType: agentParameterTypeString}, t)
+		if _, exists := agent.Parameters["ipaddr"]; exists {
+			t.Error("Parameter ipaddr exists but it shouldn't")
+		}
+	}
+}
+
+func TestFenceAgentParseXMLFC26(t *testing.T) {
+	/*
+	 * Allow glog log to stderr
+	 */
+	flag.Set("logtostderr", "true")
+	flag.Parse()
+
+	execPath := "/usr/sbin/fence_rhevm"
+
+	agent, err := fenceAgentParseXML(execPath, []byte(fenceRhevmXMLMetadataFC26))
+
+	if err != nil {
+		t.Error("Can't parse XML")
+	} else {
+		strMatch(agent.ExecutablePath, execPath, t)
+		strMatch(agent.Name, "fence-rhevm", t)
+
+		parameterMatch(agent, "ipport", AgentParameter{ParameterType: agentParameterTypeString}, t)
 		parameterMatch(agent, "plug", AgentParameter{Required: true, ParameterType: agentParameterTypeString}, t)
 		parameterMatch(agent, "ssl-secure", AgentParameter{ParameterType: agentParameterTypeBoolean}, t)
+		if _, exists := agent.Parameters["port"]; exists {
+			t.Error("Parameter port exists but it shouldn't")
+		}
+		parameterMatch(agent, "ip", AgentParameter{Required: true, ParameterType: agentParameterTypeString}, t)
+		if _, exists := agent.Parameters["ipaddr"]; exists {
+			t.Error("Parameter ipaddr exists but it shouldn't")
+		}
 	}
 }

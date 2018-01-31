@@ -96,6 +96,10 @@ func fenceAgentGetXML(agentPath string) ([]byte, error) {
  * integer (ether "integer" or "second" type) and string (all other types including "select")
  */
 func fenceAgentParseXML(agentPath string, agentXML []byte) (Agent, error) {
+	type fenceAgentXMLParameterGetOpt struct {
+		Mixed         string `xml:"mixed,attr"`
+	}
+
 	type fenceAgentXMLParameterContent struct {
 		Type         string `xml:"type,attr"`
 		DefaultValue string `xml:"default,attr"`
@@ -107,6 +111,7 @@ func fenceAgentParseXML(agentPath string, agentXML []byte) (Agent, error) {
 		Deprecated int                           `xml:"deprecated,attr"`
 		Obsoletes  string                        `xml:"obsoletes,attr"`
 		Content    fenceAgentXMLParameterContent `xml:"content"`
+		GetOpt    fenceAgentXMLParameterGetOpt `xml:"getopt"`
 	}
 
 	type resourceAgentXMLParameters struct {
@@ -140,7 +145,26 @@ func fenceAgentParseXML(agentPath string, agentXML []byte) (Agent, error) {
 			continue
 		}
 
-		parameterName := strings.Replace(parameter.Name, "_", "-", -1)
+		parameterName := ""
+
+		/*
+		 * Get opt should contain --parameter[=value]
+		 */
+		if startPos := strings.Index(parameter.GetOpt.Mixed, "--"); startPos != -1 {
+			tmpStr := parameter.GetOpt.Mixed[startPos + len("--"):]
+
+			if endPos := strings.Index(tmpStr, "="); endPos != -1 {
+				tmpStr = tmpStr[:endPos]
+			}
+
+			parameterName = tmpStr
+		}
+
+		if parameterName == "" {
+			parameterName = strings.Replace(parameter.Name, "_", "-", -1)
+			glog.Warningf("parameterName for agent %s is empty. Generating name %s.",
+			    agentPath, parameterName)
+		}
 
 		resultAgentParameter := AgentParameter{}
 		resultAgentParameter.Required = (parameter.Required != 0)
