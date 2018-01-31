@@ -22,6 +22,9 @@ const (
 type AgentParameter struct {
 	// Parameter is required
 	Required bool
+	// Default value (if specified). If parameter is Required and DefaultValue != "" then
+	// parameter is not strictly required and it's not reported as required
+	DefaultValue  string
 	ParameterType agentParameterType
 }
 
@@ -97,7 +100,7 @@ func fenceAgentGetXML(agentPath string) ([]byte, error) {
  */
 func fenceAgentParseXML(agentPath string, agentXML []byte) (Agent, error) {
 	type fenceAgentXMLParameterGetOpt struct {
-		Mixed         string `xml:"mixed,attr"`
+		Mixed string `xml:"mixed,attr"`
 	}
 
 	type fenceAgentXMLParameterContent struct {
@@ -111,7 +114,7 @@ func fenceAgentParseXML(agentPath string, agentXML []byte) (Agent, error) {
 		Deprecated int                           `xml:"deprecated,attr"`
 		Obsoletes  string                        `xml:"obsoletes,attr"`
 		Content    fenceAgentXMLParameterContent `xml:"content"`
-		GetOpt    fenceAgentXMLParameterGetOpt `xml:"getopt"`
+		GetOpt     fenceAgentXMLParameterGetOpt  `xml:"getopt"`
 	}
 
 	type resourceAgentXMLParameters struct {
@@ -151,7 +154,7 @@ func fenceAgentParseXML(agentPath string, agentXML []byte) (Agent, error) {
 		 * Get opt should contain --parameter[=value]
 		 */
 		if startPos := strings.Index(parameter.GetOpt.Mixed, "--"); startPos != -1 {
-			tmpStr := parameter.GetOpt.Mixed[startPos + len("--"):]
+			tmpStr := parameter.GetOpt.Mixed[startPos+len("--"):]
 
 			if endPos := strings.Index(tmpStr, "="); endPos != -1 {
 				tmpStr = tmpStr[:endPos]
@@ -163,11 +166,12 @@ func fenceAgentParseXML(agentPath string, agentXML []byte) (Agent, error) {
 		if parameterName == "" {
 			parameterName = strings.Replace(parameter.Name, "_", "-", -1)
 			glog.Warningf("parameterName for agent %s is empty. Generating name %s.",
-			    agentPath, parameterName)
+				agentPath, parameterName)
 		}
 
 		resultAgentParameter := AgentParameter{}
 		resultAgentParameter.Required = (parameter.Required != 0)
+		resultAgentParameter.DefaultValue = parameter.Content.DefaultValue
 
 		switch parameter.Content.Type {
 		case "string":
@@ -241,7 +245,6 @@ func fenceAgentParseBoolString(s string) (bool, error) {
 
 /*
  * TODO: Change definition to return error
- *       Check all required parameters are entered
  */
 func fenceAgentExtractParams(params map[string]string, _ *apiv1.Node) []string {
 	var ret []string
@@ -262,6 +265,22 @@ func fenceAgentExtractParams(params map[string]string, _ *apiv1.Node) []string {
 
 	agent := Agents[agentName]
 
+	/*
+	 * Make map with required parameters
+	 */
+	requiredParameterEntered := make(map[string]bool)
+	requiredParametersString := ""
+	for paramName, paramValue := range agent.Parameters {
+		if paramValue.Required && paramValue.DefaultValue == "" {
+			requiredParameterEntered[paramName] = false
+
+			if requiredParametersString != "" {
+				requiredParametersString += ", "
+			}
+			requiredParametersString += paramName
+		}
+	}
+
 	ret = append(ret, agent.ExecutablePath)
 
 	for paramName, paramValue := range params {
@@ -277,6 +296,10 @@ func fenceAgentExtractParams(params map[string]string, _ *apiv1.Node) []string {
 
 		agentParameter := agent.Parameters[paramName]
 
+		if agentParameter.Required {
+			requiredParameterEntered[paramName] = true
+		}
+
 		switch agentParameter.ParameterType {
 		case agentParameterTypeString:
 			ret = append(ret, fmt.Sprintf("--%s=%s", paramName, paramValue))
@@ -285,13 +308,22 @@ func fenceAgentExtractParams(params map[string]string, _ *apiv1.Node) []string {
 		case agentParameterTypeBoolean:
 			appendParameter, err := fenceAgentParseBoolString(paramValue)
 			if err != nil {
-				glog.Warning(err)
+				glog.Error(err)
 				return []string{}
 			}
 
 			if appendParameter {
 				ret = append(ret, fmt.Sprintf("--%s", paramName))
 			}
+		}
+	}
+
+	for paramName, paramEntered := range requiredParameterEntered {
+		if !paramEntered {
+			glog.Errorf("Required parameter %s is not entered. Required parameters are %s",
+				paramName, requiredParametersString)
+
+			return []string{}
 		}
 	}
 

@@ -3,6 +3,7 @@ package fencing
 import (
 	"flag"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -379,7 +380,7 @@ func TestFenceAgentParseXMLCOS74(t *testing.T) {
 		strMatch(agent.ExecutablePath, execPath, t)
 		strMatch(agent.Name, "fence-rhevm", t)
 
-		parameterMatch(agent, "ipport", AgentParameter{ParameterType: agentParameterTypeInteger}, t)
+		parameterMatch(agent, "ipport", AgentParameter{ParameterType: agentParameterTypeInteger, DefaultValue: "80"}, t)
 		parameterMatch(agent, "plug", AgentParameter{Required: true, ParameterType: agentParameterTypeString}, t)
 		parameterMatch(agent, "ssl-secure", AgentParameter{ParameterType: agentParameterTypeBoolean}, t)
 		if _, exists := agent.Parameters["port"]; exists {
@@ -409,7 +410,7 @@ func TestFenceAgentParseXMLFC26(t *testing.T) {
 		strMatch(agent.ExecutablePath, execPath, t)
 		strMatch(agent.Name, "fence-rhevm", t)
 
-		parameterMatch(agent, "ipport", AgentParameter{ParameterType: agentParameterTypeString}, t)
+		parameterMatch(agent, "ipport", AgentParameter{ParameterType: agentParameterTypeString, DefaultValue: "80"}, t)
 		parameterMatch(agent, "plug", AgentParameter{Required: true, ParameterType: agentParameterTypeString}, t)
 		parameterMatch(agent, "ssl-secure", AgentParameter{ParameterType: agentParameterTypeBoolean}, t)
 		if _, exists := agent.Parameters["port"]; exists {
@@ -420,4 +421,77 @@ func TestFenceAgentParseXMLFC26(t *testing.T) {
 			t.Error("Parameter ipaddr exists but it shouldn't")
 		}
 	}
+}
+
+func stringSliceMatch(slice1, slice2 []string) bool {
+	if len(slice1) != len(slice2) {
+		return false
+	}
+
+	slice1Copy := make([]string, len(slice1))
+	copy(slice1Copy, slice1)
+	sort.Strings(slice1Copy)
+
+	slice2Copy := make([]string, len(slice2))
+	copy(slice2Copy, slice2)
+	sort.Strings(slice2Copy)
+
+	for i := range slice1Copy {
+		if slice1Copy[i] != slice2Copy[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func extractParamsMatch(result []string, expectedResult []string, t *testing.T) {
+	if !stringSliceMatch(result, expectedResult) {
+		t.Error("given", result, "!= expected", expectedResult)
+	}
+}
+
+func TestFenceAgentExtractParams(t *testing.T) {
+	/*
+	 * Allow glog log to stderr
+	 */
+	flag.Set("logtostderr", "true")
+	flag.Parse()
+
+	execPath := "/usr/sbin/fence_rhevm_test"
+
+	resultAgent, err := fenceAgentParseXML(execPath, []byte(fenceRhevmXMLMetadataCOS74))
+	if err != nil {
+		t.Fatal("Can't parse XML")
+	}
+
+	if resultAgent.Name != "fence-rhevm" {
+		t.Fatal("Unexpected resultAgent.Name")
+	}
+
+	Agents[resultAgent.Name] = resultAgent
+
+	params := make(map[string]string)
+	/*
+	 * agent_name not defined
+	 */
+	result := fenceAgentExtractParams(params, nil)
+	extractParamsMatch(result, []string{}, t)
+
+	params["agent_name"] = resultAgent.Name
+	result = fenceAgentExtractParams(params, nil)
+	extractParamsMatch(result, []string{}, t)
+
+	params["plug"] = "test_plug"
+	result = fenceAgentExtractParams(params, nil)
+	extractParamsMatch(result, []string{}, t)
+
+	params["ip"] = "test_ip"
+	params["username"] = "test_username"
+	result = fenceAgentExtractParams(params, nil)
+	extractParamsMatch(result,
+		[]string{execPath, "--plug=" + params["plug"],
+			"--ip=" + params["ip"],
+			"--username=" + params["username"]},
+		t)
 }
