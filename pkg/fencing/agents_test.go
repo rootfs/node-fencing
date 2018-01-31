@@ -494,4 +494,24 @@ func TestFenceAgentExtractParams(t *testing.T) {
 			"--ip=" + params["ip"],
 			"--username=" + params["username"]},
 		t)
+
+	params["notls"] = "incorrect_bool_value"
+	result = fenceAgentExtractParams(params, nil)
+	extractParamsMatch(result, []string{}, t)
+
+	params["notls"] = "on"
+	result = fenceAgentExtractParams(params, nil)
+	extractParamsMatch(result,
+		[]string{execPath, "--plug=" + params["plug"],
+			"--ip=" + params["ip"],
+			"--username=" + params["username"], "--notls"},
+		t)
+
+	params["notls"] = "off"
+	result = fenceAgentExtractParams(params, nil)
+	extractParamsMatch(result,
+		[]string{execPath, "--plug=" + params["plug"],
+			"--ip=" + params["ip"],
+			"--username=" + params["username"]},
+		t)
 }
