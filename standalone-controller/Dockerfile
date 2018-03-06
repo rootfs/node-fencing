@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# image is based on agent-image to include all fence-agent scripts for metadata parsing
 FROM docker.io/bronhaim/agent-image
 
 ADD _output/bin/node-fencing-controller /
