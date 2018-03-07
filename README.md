@@ -20,10 +20,11 @@ The deployment starts the controller with permissions to read and start agent po
 Agents pods are based centos7 and include all fence agents script (maintained in docker.io/bronhaim/agent-image)
 
 ## Configuration
-The following define fence config for node1 which runs only fence-rhevm in power-management step.
+The following defines fence config for node1 which runs fence-rhevm in power-management step.
 
 Each step list contains the names of the fence-method to perform with space separation. For each method you should define fence-method config.
 
+The controller moves between steps every grace_period which is defined by the fence-cluster-config (default is 5seconds). For more available configs, such as defining method templates, see [examples](https://github.com/bronhaim/community/blob/06e367cd5ca391b1a650f2de606875af73604198/contributors/design-proposals/node/node-fence.md#example-configuration).
 ```yaml
 - kind: ConfigMap
   apiVersion: v1
@@ -48,12 +49,20 @@ Each step list contains the names of the fence-method to perform with space sepa
           namespace=default
           ip=ovirt.com  # address to the rhevm management
           username=admin@internal
-          password=password
+          password-script=/usr/sbin/fetch_passwd
           ssl-insecure=true
           plug=vm-node1  # the vm name
           action=reboot
           ssl=true
-          disable_http_filter=true
+          disable-http-filter=true
+
+- kind: Secret
+  apiVersion: v1
+  metadata:                                 
+    name: secret-fence-method-fence-rhevm-node1
+  type: Opaque
+  data:                                                              
+    password: MTIz # ecoded password - follow https://kubernetes.io/docs/concepts/configuration/secret/ for more info
 
 - kind: ConfigMap
   apiVersion: v1
@@ -66,8 +75,6 @@ Each step list contains the names of the fence-method to perform with space sepa
     giveup_retries=5
     roles=
 ```
-- The controller moves between steps every grace_period which is defined by the fence-cluster-config
-- For more advanced usages, such as defining method templates, see [examples](https://github.com/bronhaim/community/blob/06e367cd5ca391b1a650f2de606875af73604198/contributors/design-proposals/node/node-fence.md#example-configuration).
 
 ## Build
 ```console
