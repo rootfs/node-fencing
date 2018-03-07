@@ -29,6 +29,7 @@ all: controller
 
 controller:
 	go build -i -o standalone-controller/_output/bin/node-fencing-controller cmd/node-fencing-controller.go
+	go build -o agent-job-image/plugged-fence-agents/fetch_passwd cmd/fetch-password.go
 
 clean:
 	-rm -rf _output
