@@ -15,6 +15,8 @@
 # Base image for fencing job
 FROM centos:7
 
+RUN yum upgrade -y;
+
 RUN yum install fence-agents* -y; yum clean all
 
 # copying plugged fence agents

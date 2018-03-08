@@ -38,7 +38,7 @@ const (
 	giveupRetries      = 5
 	clusterPolicies    = ""
 
-	jobImageName     = "docker.io/bronhaim/agent-image:latest"
+	jobImageName     = "quay.io/bronhaim/agent-image"
 	workingNamespace = "default"
 )
 
@@ -745,7 +745,9 @@ func (c *Controller) runFence(params map[string]string, node *apiv1.Node) (strin
 				workingNamespace,
 				agent.ExtractParameters(params, node),
 				params["agent_name"],
-				jobImageName)
+				jobImageName,
+				params["method_name"],
+			)
 			if err != nil {
 				return "", fmt.Errorf("executeFence::failed to create job: %s", err)
 			}
@@ -757,13 +759,18 @@ func (c *Controller) runFence(params map[string]string, node *apiv1.Node) (strin
 	return "", errors.New("executeFence::agent_name parameter does not exist in fence method configuration")
 }
 
-func (c *Controller) postNewPodJob(namespace string, cmd []string, name string, image string) (*apiv1.Pod, error) {
+func (c *Controller) postNewPodJob(namespace string, cmd []string, name string, image string, method string) (*apiv1.Pod, error) {
 	pod := new(apiv1.Pod)
+	envSecret := apiv1.EnvVar{
+		Name:  "SECRET_NAME",
+		Value: "secret-" + method,
+	}
 	container := apiv1.Container{
 		Name:            name,
 		Image:           image,
 		Command:         cmd,
-		ImagePullPolicy: "IfNotPresent",
+		ImagePullPolicy: "Always",
+		Env:             []apiv1.EnvVar{envSecret},
 	}
 
 	jobUniqueName := fmt.Sprintf("fence-%s-%s", name, uuid.NewUUID())
@@ -773,8 +780,9 @@ func (c *Controller) postNewPodJob(namespace string, cmd []string, name string, 
 	pod.Spec = apiv1.PodSpec{
 		RestartPolicy: "Never",
 		Containers:    []apiv1.Container{container},
-		// TODO: define restrict service account for agent pod
-		ServiceAccountName: "fence-controller",
+		// NOTE: service account always pod to reach to any secret in apiserver
+		// we should limit this access and create the serviceAccount on runtime and remove it after pod dies
+		ServiceAccountName: "fence-agent",
 	}
 	pod, err := c.client.Core().Pods(namespace).Create(pod)
 	return pod, err

@@ -21,7 +21,7 @@ ifeq ($(VERSION),)
 endif
 
 IMAGE_CONTROLLER = $(REGISTRY)standalone-fence-controller:$(VERSION)
-MUTABLE_IMAGE_CONTROLLER = $(REGISTRY)standalone-fence-controller:latest
+IMAGE_AGENT = $(REGISTRY)agent-image:$(VERSION)
 
 .PHONY: all controller clean test
 
@@ -29,13 +29,17 @@ all: controller
 
 controller:
 	go build -i -o standalone-controller/_output/bin/node-fencing-controller cmd/node-fencing-controller.go
+	go build -o agent-job-image/plugged-fence-agents/fetch_passwd cmd/fetch-password.go
 
 clean:
 	-rm -rf _output
 
-container: controller
-	docker build -t $(MUTABLE_IMAGE_CONTROLLER) standalone-controller
-	docker tag $(MUTABLE_IMAGE_CONTROLLER) $(IMAGE_CONTROLLER)
+images: controller
+	docker build -t $(IMAGE_CONTROLLER) standalone-controller
+	docker tag $(IMAGE_CONTROLLER) $(IMAGE_CONTROLLER)
+	docker build -t $(IMAGE_AGENT) agent-job-image
+	docker tag $(IMAGE_AGENT) $(IMAGE_AGENT)
+
 
 test:
 	go test `go list ./... | grep -v 'vendor'`

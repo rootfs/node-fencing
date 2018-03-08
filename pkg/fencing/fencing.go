@@ -29,5 +29,8 @@ func GetNodeFenceConfig(nodeName string, c kubernetes.Interface) (crdv1.NodeFenc
 // GetMethodParams returns map with the fence-method-[methodName]-[nodeName] parameters
 func GetMethodParams(nodeName string, methodName string, c kubernetes.Interface) map[string]string {
 	methodFullName := "fence-method-" + methodName + "-" + nodeName
-	return GetConfigValues(methodFullName, "method.properties", c)
+	params := GetConfigValues(methodFullName, "method.properties", c)
+	// keep method-name to compone secret related to method
+	params["method_name"] = methodFullName
+	return params
 }
