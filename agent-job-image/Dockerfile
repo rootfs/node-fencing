@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Base image for fencing job
-FROM centos:7
+FROM fedora:28
 
 RUN yum upgrade -y;
 
