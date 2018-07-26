@@ -430,8 +430,11 @@ func (c *Controller) handleNodeFenceRunning(nf crdv1.NodeFence, failOnError bool
 					glog.Infof("failed to delete pod %s after completion\n", jobName)
 				}
 			} else {
-				glog.Infof("Pod %s still running\n", jobName)
-				done = false
+				//check if node is still unavailable
+				if !c.isNodeReady(nf.NodeName) {
+					done = false
+					glog.Infof("Pod %s still running\n", jobName)
+				}
 			}
 			break
 		}
@@ -453,6 +456,26 @@ func (c *Controller) handleNodeFenceRunning(nf crdv1.NodeFence, failOnError bool
 	}
 }
 
+/*
+* isNodeReady checks if node with passed name is ready, or not
+ */
+func (c *Controller) isNodeReady(nodeName string) bool {
+	node, err := c.client.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
+	if err != nil {
+		glog.Errorf("failed to get node: %s", err.Error())
+		return false
+	}
+
+	isReady := true
+	for _, condition := range node.Status.Conditions {
+		if !c.checkReadiness(node, condition) {
+			isReady = false
+			break
+		}
+	}
+	return isReady
+}
+
 // handleNodeFenceDone when nodefence on status Done, this function will update the step.
 // if step is Recovery, nodefence is removed
 // if node back to readiness - move to Recovery
@@ -469,19 +492,7 @@ func (c *Controller) handleNodeFenceDone(nf crdv1.NodeFence) {
 		return
 	}
 	// Check if node is still in unknown state
-	var node *apiv1.Node
-	var backToReady = true
-	node, err := c.client.CoreV1().Nodes().Get(nf.NodeName, metav1.GetOptions{})
-	if err != nil {
-		glog.Errorf("Failed reading node obj: %s", nf.NodeName)
-		return
-	}
-	for _, condition := range node.Status.Conditions {
-		if !c.checkReadiness(node, condition) {
-			backToReady = false
-		}
-	}
-	if backToReady {
+	if c.isNodeReady(nf.NodeName) {
 		glog.Infof("Node %s is back to ready state. Moving to Recovery stage", nf.NodeName)
 		nf.Status = crdv1.NodeFenceConditionNew
 		nf.Retries = 0
@@ -744,7 +755,7 @@ func (c *Controller) runFence(params map[string]string, node *apiv1.Node) (strin
 			job, err := c.postNewPodJob(
 				workingNamespace,
 				agent.ExtractParameters(params, node),
-				params["agent_name"],
+				agentName,
 				jobImageName,
 				params["method_name"],
 			)
@@ -754,7 +765,7 @@ func (c *Controller) runFence(params map[string]string, node *apiv1.Node) (strin
 			glog.Infof("New job created - %s", job.Name)
 			return job.Name, nil
 		}
-		return "", fmt.Errorf("executeFence::%s agent is missing", params["agent_name"])
+		return "", fmt.Errorf("executeFence::%s agent is missing", agentName)
 	}
 	return "", errors.New("executeFence::agent_name parameter does not exist in fence method configuration")
 }
