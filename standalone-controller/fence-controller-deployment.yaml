@@ -97,6 +97,8 @@ rules:
       - ''
     resources:
       - secrets
+      - nodes
+      - pods
     verbs:
       - "*"
 ---
