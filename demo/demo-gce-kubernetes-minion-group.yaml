@@ -22,19 +22,23 @@ items:
    config.properties: |-
     node_name=kubernetes-minion-group-48dw
     isolation=cordon
-    power_management=gcloud-reset-inst clean-pods
+    power_management=fence-gce clean-pods
     recovery=uncordon
 
 - kind: ConfigMap
   apiVersion: v1
   metadata:
-   name: fence-method-gcloud-reset-inst-kubernetes-minion-group-48dw
+   name: fence-method-fence-gce-kubernetes-minion-group-48dw
    namespace: default
   data:
    method.properties: |
-          agent_name=gcloud-reset-inst
-          zone=us-east1-b
-          project=kube-cluster-fence-poc
+    agent_name=fence-gce
+    zone=us-central1-b
+    project=fencing-minion-group
+    plug=kubernetes-minion-group-rsh1
+    action=reboot
+    power-wait=30
+    power-timeout=180
 
 - kind: ConfigMap
   apiVersion: v1
@@ -43,8 +47,8 @@ items:
    namespace: default
   data:
    method.properties: |
-          agent_name=cordon
-          script_path=fence-scripts/k8s_cordon_node.sh
+    agent_name=cordon
+    script_path=/usr/sbin/k8s_cordon_node.sh
 
 - kind: ConfigMap
   apiVersion: v1
@@ -53,8 +57,8 @@ items:
    namespace: default
   data:
    method.properties: |
-          agent_name=uncordon
-          script_path=fence-scripts/k8s_uncordon_node.sh
+    agent_name=uncordon
+    script_path=/usr/sbin/k8s_uncordon_node.sh
 
 - kind: ConfigMap
   apiVersion: v1
@@ -63,5 +67,5 @@ items:
    namespace: default
   data:
    method.properties: |
-          agent_name=clean-pods
-          script_path=fence-scripts/k8s_clean_all_pods_on_node.sh
+    agent_name=clean-pods
+    script_path=/usr/sbin/k8s_clean_all_pods_on_node.sh
