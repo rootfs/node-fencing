@@ -61,20 +61,21 @@ func init() {
 		glog.Warningf("Can't load fence agents from given path")
 	}
 
-	// Explicitly defined sample agents for testing
-	Agents["agent1"] = Agent{
-		Name:              "agent1",
-		Desc:              "sample agent1",
+	// TODO: Make this more user friendly, so e.g. all scripts with prefix k8s_ will be
+	// loaded automaticaly and added to Agents map
+	Agents["cordon"] = Agent{
+		Name:              "cordon",
+		Desc:              "Cordon kubernetes node",
 		ExtractParameters: runShellScriptExtractParam,
 	}
-	Agents["agent2"] = Agent{
-		Name:              "agent2",
-		Desc:              "sample agent2",
+	Agents["uncordon"] = Agent{
+		Name:              "uncordon",
+		Desc:              "Uncordon kubernetes node",
 		ExtractParameters: runShellScriptExtractParam,
 	}
-	Agents["agent3"] = Agent{
-		Name:              "agent3",
-		Desc:              "sample agent3",
+	Agents["clean-pods"] = Agent{
+		Name:              "clean-pods",
+		Desc:              "Clean pods on fenced node",
 		ExtractParameters: runShellScriptExtractParam,
 	}
 }
